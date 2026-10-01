@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    background-image: radial-gradient(
+      ellipse 1200px 600px at 20% -10%,
+      rgba(43, 224, 201, 0.05),
+      transparent 60%
+    );
+    background-attachment: fixed;
+  }
+
+  /* Visible keyboard focus everywhere, not just on inputs -- restraint
+     doesn't mean dropping accessibility. */
+  :focus-visible {
+    outline: 2px solid theme("colors.accent.DEFAULT");
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgba(43, 224, 201, 0.25);
+  }
+
+  /* Thin, dark scrollbars matching the console aesthetic instead of
+     the OS default. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #232c38;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2d3846;
+    background-clip: padding-box;
+  }
+}
+
+@layer utilities {
+  /* Restrained "glass" surface: a soft gradient + hairline border,
+     not heavy blur/skeuomorphism -- avoids the gimmicky-3D look the
+     brief explicitly warns against. */
+  .glass {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.035),
+      rgba(255, 255, 255, 0.015)
+    );
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
