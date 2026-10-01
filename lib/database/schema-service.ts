@@ -31,6 +31,8 @@ export interface RealColumn {
   type: string;
   nullable: boolean;
   default: string | null;
+  isIdentity: boolean;
+  isGenerated: boolean;
   isPrimaryKey: boolean;
   isForeignKey: boolean;
 }
@@ -79,8 +81,15 @@ export async function getExactRowCount(schema: string, table: string): Promise<n
 
 export async function getTableColumns(schema: string, table: string): Promise<RealColumn[]> {
   const [columns, primaryKeys, foreignKeys] = await Promise.all([
-    query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
-      `select column_name, data_type, is_nullable, column_default
+    query<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+      column_default: string | null;
+      is_identity: string;
+      is_generated: string;
+    }>(
+      `select column_name, data_type, is_nullable, column_default, is_identity, is_generated
        from information_schema.columns
        where table_schema = $1 and table_name = $2
        order by ordinal_position`,
@@ -112,6 +121,8 @@ export async function getTableColumns(schema: string, table: string): Promise<Re
     type: c.data_type,
     nullable: c.is_nullable === "YES",
     default: c.column_default,
+    isIdentity: c.is_identity === "YES",
+    isGenerated: c.is_generated !== "NEVER",
     isPrimaryKey: pkNames.has(c.column_name),
     isForeignKey: fkNames.has(c.column_name),
   }));
