@@ -3,7 +3,8 @@ import { isDatabaseConfigured } from "@/lib/db/client";
 import { isDdlDatabaseConfigured } from "@/lib/db/ddl-client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
-import { createTable, type NewColumnSpec } from "@/lib/database/ddl-service";
+import { createTable } from "@/lib/database/ddl-service";
+import { parseCreateTablePayload, SchemaValidationError } from "@/lib/database/schema-validation";
 import { logAuditEvent } from "@/lib/audit/log";
 
 function clientIp(req: NextRequest): string {
@@ -21,21 +22,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Schema changes are disabled until DATABASE_DDL_URL is configured." }, { status: 503 });
   }
 
-  const body = await req.json().catch(() => null);
-  const schema = typeof body?.schema === "string" ? body.schema : "public";
-  const table = typeof body?.table === "string" ? body.table : "";
-  const columns: NewColumnSpec[] = Array.isArray(body?.columns) ? body.columns : [];
-
-  if (!table || columns.length === 0) {
-    return NextResponse.json({ ok: false, error: "A table name and at least one column are required." }, { status: 400 });
+  let payload: ReturnType<typeof parseCreateTablePayload>;
+  try {
+    payload = parseCreateTablePayload(await req.json());
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "Invalid request body.", field: err instanceof SchemaValidationError ? err.field : undefined },
+      { status: 400 }
+    );
   }
 
   try {
-    await createTable(schema, table, columns);
-    await logAuditEvent({ actor: user.email, action: "schema.create_table", resource: `${schema}.${table}`, result: "success", ip: clientIp(req) });
+    await createTable(payload.schema, payload.table, payload.columns);
+    await logAuditEvent({ actor: user.email, action: "schema.create_table", resource: `${payload.schema}.${payload.table}`, result: "success", ip: clientIp(req) });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    await logAuditEvent({ actor: user.email, action: "schema.create_table", resource: `${schema}.${table}`, result: "failed", ip: clientIp(req) });
+    await logAuditEvent({ actor: user.email, action: "schema.create_table", resource: `${payload.schema}.${payload.table}`, result: "failed", ip: clientIp(req) });
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "Failed to create table." },
       { status: 500 }

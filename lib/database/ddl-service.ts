@@ -1,128 +1,373 @@
-import { ddlQuery } from "@/lib/db/ddl-client";
-import { query } from "@/lib/db/client";
+import { ddlQuery, withDdlTransaction } from "@/lib/db/ddl-client";
 import { quoteIdent, quoteQualifiedTable } from "@/lib/db/identifier";
-import { tableExists } from "@/lib/database/schema-service";
+import {
+  type AllowedSchemaColumnType,
+  type ColumnDefaultSpec,
+  type ValidatedColumnSpec,
+  validateColumnType,
+  renderColumnDefaultSql,
+  validateSchemaIdentifier,
+} from "@/lib/database/schema-validation";
 
-/**
- * Phase 10 — Backend API & Real Data Integration (Part 3).
- *
- * The real backing for Phase 5's Schema Designer -- and the highest-
- * stakes code in this app. Every operation here changes the actual
- * structure of a real table, some of them irreversibly (dropping a
- * column drops its data with it). Three things every function here
- * does without exception:
- *
- *  1. Every identifier (schema/table/column name) goes through
- *     `quoteIdent()`/`quoteQualifiedTable()` -- the same strict
- *     allow-list used everywhere else in this app, never a clever
- *     escaping trick.
- *  2. Every column *type* is checked against `ALLOWED_TYPES` below.
- *     Types can't be parameterized either (same as identifiers), and
- *     unlike a column name a bad type can't even be caught by a
- *     generic "is this a real identifier" regex -- it has to be
- *     checked against a fixed list this app actually offers in its
- *     own UI, nothing else.
- *  3. Nothing here guesses at forgiveness -- if a change is invalid
- *     (a NOT NULL column added to a non-empty table with no default,
- *     a type change existing data can't cast to), Postgres itself
- *     rejects it and that real error is what reaches the caller,
- *     not a swallowed failure or a fabricated success.
- *
- * DDL executes through the separate DATABASE_DDL_URL connection.
- * The normal DATABASE_URL role therefore never receives schema-change
- * privileges.
- */
-const ALLOWED_TYPES = new Set(["uuid", "text", "integer", "bigint", "boolean", "timestamptz", "numeric", "jsonb"]);
 const PROTECTED_SCHEMAS = new Set(["pg_catalog", "information_schema", "protodb_admin"]);
 
 function assertMutableSchema(schema: string): void {
+  validateSchemaIdentifier(schema, "schema");
   if (PROTECTED_SCHEMAS.has(schema) || schema.startsWith("pg_toast")) {
     throw new Error(`Schema "${schema}" is protected and cannot be modified through ProtoDB.`);
   }
 }
 
-function assertAllowedType(type: string): string {
-  if (!ALLOWED_TYPES.has(type)) {
-    throw new Error(`"${type}" isn't a supported column type. Allowed: ${Array.from(ALLOWED_TYPES).join(", ")}.`);
-  }
-  return type;
+export type NewColumnSpec = ValidatedColumnSpec;
+
+async function ddlTableExists(schema: string, table: string): Promise<boolean> {
+  const rows = await ddlQuery<{ exists: boolean }>(
+    `select exists (
+       select 1 from information_schema.tables
+       where table_schema = $1 and table_name = $2 and table_type = 'BASE TABLE'
+     ) as exists`,
+    [schema, table]
+  );
+  return rows[0]?.exists === true;
 }
 
-export interface NewColumnSpec {
-  name: string;
-  type: string;
-  nullable: boolean;
-  isPrimaryKey?: boolean;
+async function requireTable(schema: string, table: string): Promise<string> {
+  assertMutableSchema(schema);
+  validateSchemaIdentifier(table, "table");
+  const qualified = quoteQualifiedTable(schema, table);
+  if (!(await ddlTableExists(schema, table))) throw new Error(`"${schema}.${table}" doesn't exist.`);
+  return qualified;
+}
+
+interface DdlColumn {
+  column_name: string;
+  data_type: string;
+  udt_name: string;
+  is_nullable: string;
+}
+
+async function getDdlColumn(schema: string, table: string, column: string): Promise<DdlColumn> {
+  validateSchemaIdentifier(schema, "schema");
+  validateSchemaIdentifier(table, "table");
+  validateSchemaIdentifier(column, "column");
+  const rows = await ddlQuery<DdlColumn>(
+    `select column_name, data_type, udt_name, is_nullable
+     from information_schema.columns
+     where table_schema = $1 and table_name = $2 and column_name = $3`,
+    [schema, table, column]
+  );
+  const result = rows[0];
+  if (!result) throw new Error(`Column "${column}" doesn't exist in "${schema}.${table}".`);
+  return result;
+}
+
+function defaultTypeFor(column: DdlColumn): AllowedSchemaColumnType {
+  const type = column.data_type === "timestamp with time zone"
+    ? "timestamptz"
+    : column.data_type === "character varying" || column.data_type === "character"
+      ? "text"
+      : column.data_type;
+  return validateColumnType(type, "column type");
 }
 
 /**
- * Creates a real table. At least one column is required (an empty
- * table with zero columns isn't valid Postgres anyway); if exactly
- * one column is marked as primary key, it's declared as one at
- * creation time -- composite primary keys aren't offered by this
- * pass's UI, so this doesn't need to handle them.
+ * Creates one real table through the dedicated server-side DDL
+ * connection. Column definitions are structured and all SQL
+ * identifiers and types are validated before interpolation.
  */
 export async function createTable(schema: string, table: string, columns: NewColumnSpec[]): Promise<void> {
   assertMutableSchema(schema);
-  if (columns.length === 0) throw new Error("A table needs at least one column.");
-  if (await tableExists(schema, table)) throw new Error(`"${schema}.${table}" already exists.`);
-
+  validateSchemaIdentifier(table, "table");
   const qualified = quoteQualifiedTable(schema, table);
+  if (columns.length === 0) throw new Error("A table needs at least one column.");
+  if (columns.filter((column) => column.isPrimaryKey).length > 1) {
+    throw new Error("Only one primary-key column is supported; composite primary keys are not available.");
+  }
+  if (columns.some((column) => column.isPrimaryKey && column.nullable)) {
+    throw new Error("Primary-key columns must be non-nullable.");
+  }
+  const names = new Set<string>();
   const columnDefs = columns.map((col) => {
-    const type = assertAllowedType(col.type);
-    const parts = [quoteIdent(col.name, "column"), type];
+    validateSchemaIdentifier(col.name, "column");
+    const name = quoteIdent(col.name, "column");
+    if (names.has(col.name)) throw new Error(`Column "${col.name}" is listed more than once.`);
+    names.add(col.name);
+    const type = validateColumnType(col.type);
+    if (typeof col.nullable !== "boolean") throw new Error(`Column "${col.name}" nullable must be a boolean.`);
+    const parts = [name, type];
     if (!col.nullable) parts.push("not null");
     if (col.isPrimaryKey) parts.push("primary key");
+    if (col.defaultValue) parts.push("default", renderColumnDefaultSql(col.defaultValue, type));
     return parts.join(" ");
   });
 
+  if (await ddlTableExists(schema, table)) throw new Error(`"${schema}.${table}" already exists.`);
   await ddlQuery(`create table ${qualified} (${columnDefs.join(", ")})`);
 }
 
 export async function dropTable(schema: string, table: string): Promise<void> {
-  assertMutableSchema(schema);
-  if (!(await tableExists(schema, table))) throw new Error(`"${schema}.${table}" doesn't exist.`);
-  const qualified = quoteQualifiedTable(schema, table);
+  const qualified = await requireTable(schema, table);
   await ddlQuery(`drop table ${qualified}`);
 }
 
 export async function addColumn(
   schema: string,
   table: string,
-  column: { name: string; type: string; nullable: boolean }
+  column: { name: string; type: string; nullable: boolean; defaultValue?: ColumnDefaultSpec }
 ): Promise<void> {
-  assertMutableSchema(schema);
-  const qualified = quoteQualifiedTable(schema, table);
-  const type = assertAllowedType(column.type);
-  const parts = [`alter table ${qualified} add column ${quoteIdent(column.name, "column")} ${type}`];
+  const qualified = await requireTable(schema, table);
+  validateSchemaIdentifier(column.name, "column");
+  const name = quoteIdent(column.name, "column");
+  const type = validateColumnType(column.type);
+  if (typeof column.nullable !== "boolean") throw new Error("nullable must be a boolean.");
+  const duplicate = await ddlQuery<{ exists: boolean }>(
+    `select exists(select 1 from information_schema.columns where table_schema = $1 and table_name = $2 and column_name = $3) as exists`,
+    [schema, table, column.name]
+  );
+  if (duplicate[0]?.exists) throw new Error(`Column "${column.name}" already exists in "${schema}.${table}".`);
+  const parts = [`alter table ${qualified} add column ${name} ${type}`];
   if (!column.nullable) parts.push("not null");
+  if (column.defaultValue) parts.push("default", renderColumnDefaultSql(column.defaultValue, type));
   await ddlQuery(parts.join(" "));
 }
 
 export async function dropColumn(schema: string, table: string, columnName: string): Promise<void> {
-  assertMutableSchema(schema);
-  const qualified = quoteQualifiedTable(schema, table);
+  const qualified = await requireTable(schema, table);
+  const column = await getDdlColumn(schema, table, columnName);
+  const primaryKey = await ddlQuery<{ column_name: string }>(
+    `select kcu.column_name
+     from information_schema.table_constraints tc
+     join information_schema.key_column_usage kcu
+       on tc.constraint_catalog = kcu.constraint_catalog
+      and tc.constraint_schema = kcu.constraint_schema
+      and tc.constraint_name = kcu.constraint_name
+      and tc.table_catalog = kcu.table_catalog
+      and tc.table_schema = kcu.table_schema
+      and tc.table_name = kcu.table_name
+     where tc.table_schema = $1 and tc.table_name = $2
+       and tc.constraint_type = 'PRIMARY KEY' and kcu.column_name = $3`,
+    [schema, table, column.column_name]
+  );
+  if (primaryKey.length) throw new Error("Drop the primary-key constraint before dropping its column.");
   await ddlQuery(`alter table ${qualified} drop column ${quoteIdent(columnName, "column")}`);
 }
 
 export async function renameColumn(schema: string, table: string, oldName: string, newName: string): Promise<void> {
-  assertMutableSchema(schema);
-  const qualified = quoteQualifiedTable(schema, table);
+  const qualified = await requireTable(schema, table);
+  await getDdlColumn(schema, table, oldName);
+  validateSchemaIdentifier(newName, "column");
+  if (oldName === newName) throw new Error("The new column name must differ from the current name.");
+  const duplicate = await ddlQuery<{ exists: boolean }>(
+    `select exists(select 1 from information_schema.columns where table_schema = $1 and table_name = $2 and column_name = $3) as exists`,
+    [schema, table, newName]
+  );
+  if (duplicate[0]?.exists) throw new Error(`Column "${newName}" already exists in "${schema}.${table}".`);
   await ddlQuery(
     `alter table ${qualified} rename column ${quoteIdent(oldName, "column")} to ${quoteIdent(newName, "column")}`
   );
 }
 
 export async function alterColumnType(schema: string, table: string, columnName: string, newType: string): Promise<void> {
-  assertMutableSchema(schema);
-  const qualified = quoteQualifiedTable(schema, table);
-  const type = assertAllowedType(newType);
+  const qualified = await requireTable(schema, table);
+  await getDdlColumn(schema, table, columnName);
+  const type = validateColumnType(newType);
   await ddlQuery(`alter table ${qualified} alter column ${quoteIdent(columnName, "column")} type ${type}`);
 }
 
 export async function setColumnNullable(schema: string, table: string, columnName: string, nullable: boolean): Promise<void> {
-  assertMutableSchema(schema);
-  const qualified = quoteQualifiedTable(schema, table);
+  const qualified = await requireTable(schema, table);
+  await getDdlColumn(schema, table, columnName);
+  if (typeof nullable !== "boolean") throw new Error("nullable must be a boolean.");
   const action = nullable ? "drop not null" : "set not null";
   await ddlQuery(`alter table ${qualified} alter column ${quoteIdent(columnName, "column")} ${action}`);
+}
+
+export async function setColumnDefault(
+  schema: string,
+  table: string,
+  columnName: string,
+  defaultValue: ColumnDefaultSpec | null
+): Promise<void> {
+  const qualified = await requireTable(schema, table);
+  const column = await getDdlColumn(schema, table, columnName);
+  const action = defaultValue === null
+    ? "drop default"
+    : `set default ${renderColumnDefaultSql(defaultValue, defaultTypeFor(column))}`;
+  await ddlQuery(`alter table ${qualified} alter column ${quoteIdent(columnName, "column")} ${action}`);
+}
+
+export async function setSingleColumnPrimaryKey(
+  schema: string,
+  table: string,
+  columnName: string,
+  enabled: boolean
+): Promise<void> {
+  const qualified = await requireTable(schema, table);
+  const column = await getDdlColumn(schema, table, columnName);
+  const keys = await ddlQuery<{ constraint_name: string; column_name: string; ordinal_position: number }>(
+    `select tc.constraint_name, kcu.column_name, kcu.ordinal_position
+     from information_schema.table_constraints tc
+     join information_schema.key_column_usage kcu
+       on tc.constraint_catalog = kcu.constraint_catalog
+      and tc.constraint_schema = kcu.constraint_schema
+      and tc.constraint_name = kcu.constraint_name
+      and tc.table_catalog = kcu.table_catalog
+      and tc.table_schema = kcu.table_schema
+      and tc.table_name = kcu.table_name
+     where tc.table_schema = $1 and tc.table_name = $2
+       and tc.constraint_type = 'PRIMARY KEY'
+     order by kcu.ordinal_position`,
+    [schema, table]
+  );
+  if (enabled) {
+    if (keys.length) throw new Error("This table already has a primary key. Remove it before selecting another column.");
+    if (column.is_nullable === "YES") {
+      throw new Error("Set this column to NOT NULL explicitly before making it a primary key.");
+    }
+    await ddlQuery(`alter table ${qualified} add primary key (${quoteIdent(columnName, "column")})`);
+    return;
+  }
+
+  if (!keys.length || keys[0].column_name !== columnName || keys.length !== 1) {
+    throw new Error("Only a single-column primary key can be removed through this operation.");
+  }
+  await ddlQuery(`alter table ${qualified} drop constraint ${quoteIdent(keys[0].constraint_name, "constraint")}`);
+}
+
+interface ForeignKeyColumnInfo {
+  data_type: string;
+  udt_name: string;
+}
+
+async function getForeignKeyColumn(schema: string, table: string, column: string): Promise<ForeignKeyColumnInfo> {
+  validateSchemaIdentifier(schema, "schema");
+  validateSchemaIdentifier(table, "table");
+  validateSchemaIdentifier(column, "column");
+  const rows = await ddlQuery<ForeignKeyColumnInfo>(
+    `select data_type, udt_name from information_schema.columns
+     where table_schema = $1 and table_name = $2 and column_name = $3`,
+    [schema, table, column]
+  );
+  if (!rows[0]) throw new Error(`Column "${column}" doesn't exist in "${schema}.${table}".`);
+  return rows[0];
+}
+
+export async function createForeignKey(input: {
+  schema: string;
+  table: string;
+  column: string;
+  refSchema: string;
+  refTable: string;
+  refColumn: string;
+  constraintName: string;
+}): Promise<void> {
+  const definition = await validateForeignKeyDefinition(input);
+  const existingConstraint = await ddlQuery<{ exists: boolean }>(
+    `select exists (
+       select 1 from pg_constraint c
+       join pg_class t on t.oid = c.conrelid
+       join pg_namespace n on n.oid = t.relnamespace
+       where n.nspname = $1 and t.relname = $2 and c.conname = $3
+     ) as exists`,
+    [input.schema, input.table, input.constraintName]
+  );
+  if (existingConstraint[0]?.exists) throw new Error(`Constraint "${input.constraintName}" already exists on this table.`);
+
+  await ddlQuery(definition.statement);
+}
+
+async function validateForeignKeyDefinition(input: {
+  schema: string;
+  table: string;
+  column: string;
+  refSchema: string;
+  refTable: string;
+  refColumn: string;
+  constraintName: string;
+}): Promise<{ statement: string }> {
+  assertMutableSchema(input.schema);
+  assertMutableSchema(input.refSchema);
+  validateSchemaIdentifier(input.constraintName, "constraint");
+  const sourceTable = await requireTable(input.schema, input.table);
+  const targetTable = await requireTable(input.refSchema, input.refTable);
+  const sourceColumn = await getForeignKeyColumn(input.schema, input.table, input.column);
+  const targetColumn = await getForeignKeyColumn(input.refSchema, input.refTable, input.refColumn);
+  if (sourceColumn.udt_name !== targetColumn.udt_name || sourceColumn.data_type !== targetColumn.data_type) {
+    throw new Error("Foreign-key columns must have the same PostgreSQL type.");
+  }
+
+  const uniqueTarget = await ddlQuery<{ is_key: boolean }>(
+    `select exists (
+       select 1
+       from information_schema.table_constraints tc
+       join information_schema.key_column_usage kcu
+         on tc.constraint_catalog = kcu.constraint_catalog
+        and tc.constraint_schema = kcu.constraint_schema
+        and tc.constraint_name = kcu.constraint_name
+        and tc.table_catalog = kcu.table_catalog
+        and tc.table_schema = kcu.table_schema
+        and tc.table_name = kcu.table_name
+       where tc.table_schema = $1 and tc.table_name = $2
+         and tc.constraint_type in ('PRIMARY KEY', 'UNIQUE')
+         and kcu.column_name = $3
+         and (select count(*) from information_schema.key_column_usage all_keys
+              where all_keys.constraint_catalog = tc.constraint_catalog
+                and all_keys.constraint_schema = tc.constraint_schema
+                and all_keys.constraint_name = tc.constraint_name
+                and all_keys.table_schema = tc.table_schema
+                and all_keys.table_name = tc.table_name) = 1
+     ) as is_key`,
+    [input.refSchema, input.refTable, input.refColumn]
+  );
+  if (!uniqueTarget[0]?.is_key) throw new Error("The referenced column must be a single-column primary key or unique key.");
+
+  return {
+    statement: `alter table ${sourceTable} add constraint ${quoteIdent(input.constraintName, "constraint")}
+      foreign key (${quoteIdent(input.column, "column")})
+      references ${targetTable} (${quoteIdent(input.refColumn, "column")})`,
+  };
+}
+
+export async function replaceForeignKey(input: {
+  schema: string;
+  table: string;
+  column: string;
+  refSchema: string;
+  refTable: string;
+  refColumn: string;
+  constraintName: string;
+}): Promise<void> {
+  const definition = await validateForeignKeyDefinition(input);
+  const qualified = await requireTable(input.schema, input.table);
+  const rows = await ddlQuery<{ exists: boolean }>(
+    `select exists (
+       select 1 from pg_constraint c
+       join pg_class t on t.oid = c.conrelid
+       join pg_namespace n on n.oid = t.relnamespace
+       where c.contype = 'f' and n.nspname = $1 and t.relname = $2 and c.conname = $3
+     ) as exists`,
+    [input.schema, input.table, input.constraintName]
+  );
+  if (!rows[0]?.exists) throw new Error(`Foreign-key constraint "${input.constraintName}" doesn't exist on "${input.schema}.${input.table}".`);
+
+  await withDdlTransaction(async (client) => {
+    await client.query(`alter table ${qualified} drop constraint ${quoteIdent(input.constraintName, "constraint")}`);
+    await client.query(definition.statement);
+  });
+}
+
+export async function dropForeignKey(schema: string, table: string, constraintName: string): Promise<void> {
+  const qualified = await requireTable(schema, table);
+  validateSchemaIdentifier(constraintName, "constraint");
+  const rows = await ddlQuery<{ exists: boolean }>(
+    `select exists (
+       select 1 from pg_constraint c
+       join pg_class t on t.oid = c.conrelid
+       join pg_namespace n on n.oid = t.relnamespace
+       where c.contype = 'f' and n.nspname = $1 and t.relname = $2 and c.conname = $3
+     ) as exists`,
+    [schema, table, constraintName]
+  );
+  if (!rows[0]?.exists) throw new Error(`Foreign-key constraint "${constraintName}" doesn't exist on "${schema}.${table}".`);
+  await ddlQuery(`alter table ${qualified} drop constraint ${quoteIdent(constraintName, "constraint")}`);
 }

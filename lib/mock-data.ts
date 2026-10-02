@@ -373,6 +373,12 @@ export interface ForeignKeyRef {
   column: string;
   refTable: string;
   refColumn: string;
+  schema?: string;
+  refSchema?: string;
+  constraintName?: string;
+  columns?: { column: string; refColumn: string }[];
+  onUpdate?: string;
+  onDelete?: string;
 }
 
 export const foreignKeys: ForeignKeyRef[] = [

@@ -1,4 +1,4 @@
-import { Pool, type QueryResultRow } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 let ddlPool: Pool | null = null;
 
@@ -40,4 +40,28 @@ export async function ddlQuery<T extends QueryResultRow = QueryResultRow>(
   params?: unknown[]
 ): Promise<T[]> {
   return (await getDdlPool().query<T>(text, params)).rows;
+}
+
+export async function withDdlTransaction<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await getDdlPool().connect();
+  let transactionStarted = false;
+  try {
+    await client.query("begin");
+    transactionStarted = true;
+    const result = await operation(client);
+    await client.query("commit");
+    transactionStarted = false;
+    return result;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await client.query("rollback");
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "DDL operation and rollback both failed.");
+      }
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }

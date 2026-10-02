@@ -10,6 +10,10 @@ export interface EdgeGeometry {
   labelY: number;
 }
 
+export function schemaTableKey(schema: string | undefined, table: string): string {
+  return schema ? `${schema}.${table}` : table;
+}
+
 function center(pos: { x: number; y: number }, columns: TableColumn[]) {
   return { cx: pos.x + NODE_WIDTH / 2, cy: pos.y + nodeHeight(columns.length) / 2 };
 }
@@ -21,10 +25,12 @@ export function computeEdges(
 ): EdgeGeometry[] {
   return foreignKeys
     .map((fk) => {
-      const sourcePos = positions[fk.table];
-      const targetPos = positions[fk.refTable];
-      const sourceCols = columnsByTable[fk.table];
-      const targetCols = columnsByTable[fk.refTable];
+      const sourceKey = schemaTableKey(fk.schema, fk.table);
+      const targetKey = schemaTableKey(fk.refSchema, fk.refTable);
+      const sourcePos = positions[sourceKey];
+      const targetPos = positions[targetKey];
+      const sourceCols = columnsByTable[sourceKey];
+      const targetCols = columnsByTable[targetKey];
       if (!sourcePos || !targetPos || !sourceCols || !targetCols) return null;
 
       const a = center(sourcePos, sourceCols);
@@ -59,8 +65,9 @@ export function SchemaEdges({
         </marker>
       </defs>
       {edges.map((edge, i) => (
-        <g key={`${edge.fk.table}.${edge.fk.column}`} className="text-ink-faint">
+        <g key={`${schemaTableKey(edge.fk.schema, edge.fk.table)}.${edge.fk.constraintName ?? edge.fk.column}.${i}`} className="text-ink-faint">
           <path
+            data-schema-edge="true"
             d={edge.path}
             fill="none"
             stroke="currentColor"
@@ -70,6 +77,7 @@ export function SchemaEdges({
             opacity={selectedIndex === i ? 1 : 0.55}
           />
           <path
+            data-schema-edge="true"
             d={edge.path}
             fill="none"
             stroke="transparent"

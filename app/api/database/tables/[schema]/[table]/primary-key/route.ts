@@ -3,8 +3,8 @@ import { isDatabaseConfigured } from "@/lib/db/client";
 import { isDdlDatabaseConfigured } from "@/lib/db/ddl-client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
-import { addColumn } from "@/lib/database/ddl-service";
-import { parseAddColumnPayload, SchemaValidationError, validateSchemaIdentifier } from "@/lib/database/schema-validation";
+import { setSingleColumnPrimaryKey } from "@/lib/database/ddl-service";
+import { parsePrimaryKeyPayload, SchemaValidationError, validateSchemaIdentifier } from "@/lib/database/schema-validation";
 import { logAuditEvent } from "@/lib/audit/log";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ schema: string; table: string }> }) {
@@ -20,12 +20,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sch
 
   let schema: string;
   let table: string;
-  let column: ReturnType<typeof parseAddColumnPayload>;
+  let payload: ReturnType<typeof parsePrimaryKeyPayload>;
   try {
-    const paramsValue = await params;
-    schema = validateSchemaIdentifier(paramsValue.schema, "schema");
-    table = validateSchemaIdentifier(paramsValue.table, "table");
-    column = parseAddColumnPayload(await req.json());
+    const routeParams = await params;
+    schema = validateSchemaIdentifier(routeParams.schema, "schema");
+    table = validateSchemaIdentifier(routeParams.table, "table");
+    payload = parsePrimaryKeyPayload(await req.json());
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "Invalid request.", field: err instanceof SchemaValidationError ? err.field : undefined },
@@ -34,15 +34,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sch
   }
 
   const ip = req.headers.get("x-forwarded-for") ?? "—";
+  const action = payload.enabled ? "schema.add_primary_key" : "schema.drop_primary_key";
   try {
-    await addColumn(schema, table, column);
-    await logAuditEvent({ actor: user.email, action: "schema.add_column", resource: `${schema}.${table}.${column.name}`, result: "success", ip });
+    await setSingleColumnPrimaryKey(schema, table, payload.column, payload.enabled);
+    await logAuditEvent({ actor: user.email, action, resource: `${schema}.${table}.${payload.column}`, result: "success", ip });
     return NextResponse.json({ ok: true });
   } catch (err) {
-    await logAuditEvent({ actor: user.email, action: "schema.add_column", resource: `${schema}.${table}.${column.name}`, result: "failed", ip });
+    await logAuditEvent({ actor: user.email, action, resource: `${schema}.${table}.${payload.column}`, result: "failed", ip });
     return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to add column." },
-      { status: 500 }
+      { ok: false, error: err instanceof Error ? err.message : "Failed to update the primary key." },
+      { status: 400 }
     );
   }
 }

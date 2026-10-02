@@ -40,10 +40,13 @@ Then open http://localhost:3000 — it redirects to `/dashboard` (or
     audited.
   - **Explorer (demo)**: the original mock schema/table tree and
     Phase 4 grid remain available as an explicit preview.
-  - **Schema Diagram** (Phase 5): every table as a draggable node on
-    a pan/zoom canvas, foreign keys drawn as clickable connector
-    lines (click one for the relationship inspector), add/edit/drop
-    columns per table, and a "New table" flow — all from the canvas.
+  - **Live Schema** (Phase 5): real PostgreSQL tables as draggable,
+    schema-qualified nodes with pan, zoom, auto-layout, and browser-
+    persisted positions. Foreign-key edges include ordered composite
+    column mappings and open an inspector; Owner/Admin users can create,
+    edit, and remove supported constraints and column definitions.
+  - **Schema (demo)**: the original mock canvas remains available as a
+    clearly labeled reference and never substitutes for the live view.
   The connected Live Database view uses real PostgreSQL data; the
   demo view uses the fixed mock row sets. The Schema Diagram remains
   a separate Phase 5 feature.

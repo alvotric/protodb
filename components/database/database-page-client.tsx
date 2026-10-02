@@ -37,7 +37,7 @@ export function DatabasePageClient({ databaseConfigured }: { databaseConfigured:
       ]
     : [
         { value: "explorer", label: "Explorer" },
-        { value: "schema", label: "Schema Diagram" },
+        { value: "schema", label: "Schema (demo)" },
       ];
 
   const isLiveMode = mode === "live" || mode === "live-schema";
@@ -48,13 +48,14 @@ export function DatabasePageClient({ databaseConfigured }: { databaseConfigured:
         ? "See how your real tables relate to each other -- and create/edit them for real."
         : mode === "explorer"
           ? "Browse your schemas and tables."
-          : "See how your tables relate to each other.";
+          : "Preview a mock schema diagram; no database changes are made.";
 
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <p className="text-sm text-ink-muted">{description}</p>
+          {mode === "schema" && !databaseConfigured && <Badge tone="warning">Demo data</Badge>}
           {!isLiveMode && databaseConfigured && <Badge tone="warning">Preview data</Badge>}
         </div>
         <Tabs items={tabs} value={mode} onChange={(v) => setMode(v as ViewMode)} />

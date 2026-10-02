@@ -16,6 +16,8 @@ export function nodeHeight(columnCount: number): number {
 export function SchemaNode({
   name,
   columns,
+  isPartitioned = false,
+  editable = true,
   x,
   y,
   selected,
@@ -24,6 +26,8 @@ export function SchemaNode({
 }: {
   name: string;
   columns: TableColumn[];
+  isPartitioned?: boolean;
+  editable?: boolean;
   x: number;
   y: number;
   selected: boolean;
@@ -32,6 +36,7 @@ export function SchemaNode({
 }) {
   return (
     <div
+      data-schema-node="true"
       style={{ left: x, top: y, width: NODE_WIDTH }}
       className={cn(
         "glass absolute select-none rounded-lg border shadow-panel",
@@ -44,11 +49,14 @@ export function SchemaNode({
         style={{ height: HEADER_HEIGHT }}
       >
         <span className="truncate font-mono text-[13px] font-medium text-ink">{name}</span>
+        {isPartitioned && <span title="Partitioned table" className="shrink-0 rounded bg-accent-soft px-1 py-0.5 text-[9px] text-accent">partitioned</span>}
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={onEdit}
+          disabled={!editable}
           aria-label={`Edit ${name}`}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-white/10 hover:text-ink"
+          title={editable ? `Edit ${name}` : "Table columns are unavailable; editing is disabled"}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-white/10 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
         >
           <Pencil className="h-3 w-3" />
         </button>

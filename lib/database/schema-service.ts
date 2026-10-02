@@ -1,5 +1,6 @@
 import { query, queryOne } from "@/lib/db/client";
 import { quoteQualifiedTable } from "@/lib/db/identifier";
+import { groupForeignKeyMetadata, type ForeignKeyMetadata } from "@/lib/database/foreign-key-metadata";
 
 
 export interface RealSchemaSummary {
@@ -24,6 +25,7 @@ export interface RealTableSummary {
   name: string;
   approxRowCount: number;
   sizeBytes: number;
+  isPartitioned: boolean;
 }
 
 export interface RealColumn {
@@ -49,16 +51,18 @@ export interface RealColumn {
  * below gets the exact number, but only for one table at a time (the
  * cost that's fine to pay once you've actually opened it).
  */
-export async function listSchemaTables(): Promise<RealTableSummary[]> {
-  const rows = await query<{ schema: string; table_name: string; approx_row_count: string; size_bytes: string }>(
+export async function listSchemaTables(options: { includePartitioned?: boolean } = {}): Promise<RealTableSummary[]> {
+  const relationFilter = options.includePartitioned ? "c.relkind in ('r', 'p')" : "c.relkind = 'r'";
+  const rows = await query<{ schema: string; table_name: string; approx_row_count: string; size_bytes: string; is_partitioned: boolean }>(
     `select
        n.nspname as schema,
        c.relname as table_name,
        greatest(c.reltuples, 0)::bigint::text as approx_row_count,
-       pg_total_relation_size(c.oid)::text as size_bytes
+       pg_total_relation_size(c.oid)::text as size_bytes,
+       c.relkind = 'p' as is_partitioned
      from pg_class c
      join pg_namespace n on n.oid = c.relnamespace
-     where c.relkind = 'r'
+     where ${relationFilter}
        and n.nspname not in ('pg_catalog', 'information_schema', 'protodb_admin')
        and n.nspname not like 'pg\\_toast%'
      order by n.nspname, c.relname`
@@ -69,6 +73,7 @@ export async function listSchemaTables(): Promise<RealTableSummary[]> {
     name: r.table_name,
     approxRowCount: parseInt(r.approx_row_count, 10),
     sizeBytes: parseInt(r.size_bytes, 10),
+    isPartitioned: r.is_partitioned,
   }));
 }
 
@@ -99,7 +104,12 @@ export async function getTableColumns(schema: string, table: string): Promise<Re
       `select kcu.column_name
        from information_schema.table_constraints tc
        join information_schema.key_column_usage kcu
-         on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema
+         on tc.constraint_catalog = kcu.constraint_catalog
+        and tc.constraint_schema = kcu.constraint_schema
+        and tc.constraint_name = kcu.constraint_name
+        and tc.table_catalog = kcu.table_catalog
+        and tc.table_schema = kcu.table_schema
+        and tc.table_name = kcu.table_name
        where tc.table_schema = $1 and tc.table_name = $2 and tc.constraint_type = 'PRIMARY KEY'`,
       [schema, table]
     ),
@@ -107,7 +117,12 @@ export async function getTableColumns(schema: string, table: string): Promise<Re
       `select kcu.column_name
        from information_schema.table_constraints tc
        join information_schema.key_column_usage kcu
-         on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema
+         on tc.constraint_catalog = kcu.constraint_catalog
+        and tc.constraint_schema = kcu.constraint_schema
+        and tc.constraint_name = kcu.constraint_name
+        and tc.table_catalog = kcu.table_catalog
+        and tc.table_schema = kcu.table_schema
+        and tc.table_name = kcu.table_name
        where tc.table_schema = $1 and tc.table_name = $2 and tc.constraint_type = 'FOREIGN KEY'`,
       [schema, table]
     ),
@@ -137,14 +152,7 @@ export async function tableExists(schema: string, table: string): Promise<boolea
   return row !== null;
 }
 
-export interface RealForeignKey {
-  schema: string;
-  table: string;
-  column: string;
-  refSchema: string;
-  refTable: string;
-  refColumn: string;
-}
+export type RealForeignKey = ForeignKeyMetadata;
 
 /**
  * Every foreign-key relationship across every non-system schema --
@@ -154,35 +162,56 @@ export interface RealForeignKey {
  */
 export async function listForeignKeys(): Promise<RealForeignKey[]> {
   const rows = await query<{
-    table_schema: string;
-    table_name: string;
-    column_name: string;
+    constraint_id: string;
+    schema: string;
+    table: string;
+    constraint_name: string;
+    column: string;
     ref_schema: string;
     ref_table: string;
     ref_column: string;
+    ordinal_position: number;
+    on_update: string;
+    on_delete: string;
   }>(
     `select
-       tc.table_schema,
-       tc.table_name,
-       kcu.column_name,
-       ccu.table_schema as ref_schema,
-       ccu.table_name as ref_table,
-       ccu.column_name as ref_column
-     from information_schema.table_constraints tc
-     join information_schema.key_column_usage kcu
-       on tc.constraint_name = kcu.constraint_name and tc.table_schema = kcu.table_schema
-     join information_schema.constraint_column_usage ccu
-       on tc.constraint_name = ccu.constraint_name and tc.table_schema = ccu.table_schema
-     where tc.constraint_type = 'FOREIGN KEY'
-       and tc.table_schema not in ('pg_catalog', 'information_schema', 'protodb_admin')`
+       fk.oid::text as constraint_id,
+       source_ns.nspname as schema,
+       source_table.relname as table,
+       fk.conname as constraint_name,
+       source_column.attname as column,
+       target_ns.nspname as ref_schema,
+       target_table.relname as ref_table,
+       target_column.attname as ref_column,
+       key_columns.ordinality as ordinal_position,
+       case fk.confupdtype
+         when 'a' then 'NO ACTION' when 'r' then 'RESTRICT' when 'c' then 'CASCADE'
+         when 'n' then 'SET NULL' when 'd' then 'SET DEFAULT'
+       end as on_update,
+       case fk.confdeltype
+         when 'a' then 'NO ACTION' when 'r' then 'RESTRICT' when 'c' then 'CASCADE'
+         when 'n' then 'SET NULL' when 'd' then 'SET DEFAULT'
+       end as on_delete
+     from pg_constraint fk
+     join pg_class source_table on source_table.oid = fk.conrelid
+     join pg_namespace source_ns on source_ns.oid = source_table.relnamespace
+     join pg_class target_table on target_table.oid = fk.confrelid
+     join pg_namespace target_ns on target_ns.oid = target_table.relnamespace
+     cross join lateral unnest(fk.conkey, fk.confkey) with ordinality
+       as key_columns(source_attnum, target_attnum, ordinality)
+     join pg_attribute source_column
+       on source_column.attrelid = source_table.oid and source_column.attnum = key_columns.source_attnum
+     join pg_attribute target_column
+       on target_column.attrelid = target_table.oid and target_column.attnum = key_columns.target_attnum
+     where fk.contype = 'f'
+       and source_ns.nspname not in ('pg_catalog', 'information_schema', 'protodb_admin')
+       and source_ns.nspname not like 'pg_toast%'
+     order by fk.oid, key_columns.ordinality`
   );
 
-  return rows.map((r) => ({
-    schema: r.table_schema,
-    table: r.table_name,
-    column: r.column_name,
-    refSchema: r.ref_schema,
-    refTable: r.ref_table,
-    refColumn: r.ref_column,
+  return groupForeignKeyMetadata(rows).map((foreignKey) => ({
+    ...foreignKey,
+    column: foreignKey.columns[0]?.column ?? "",
+    refColumn: foreignKey.columns[0]?.refColumn ?? "",
   }));
 }
