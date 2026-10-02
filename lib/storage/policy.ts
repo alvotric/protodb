@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SessionUser } from "@/lib/auth/session";
+import { roleHasCapability } from "../auth/role-capabilities.ts";
 import type { StorageFileKind } from "@/lib/storage/types";
 
 export const MAX_STORAGE_FILE_BYTES = 50 * 1024 * 1024;
@@ -103,16 +104,16 @@ export function getStorageKind(name: string, contentType: string): StorageFileKi
   return "other";
 }
 
-export function canReadStorage(_user: SessionUser): boolean {
-  return _user.status === "active";
+export function canReadStorage(user: SessionUser): boolean {
+  return user.status === "active" && roleHasCapability(user.role, "readStorage");
 }
 
 export function canWriteStorage(user: SessionUser): boolean {
-  return user.status === "active" && (user.role === "Owner" || user.role === "Admin" || user.role === "Editor");
+  return user.status === "active" && roleHasCapability(user.role, "writeStorage");
 }
 
 export function canManageStorage(user: SessionUser): boolean {
-  return user.status === "active" && (user.role === "Owner" || user.role === "Admin");
+  return user.status === "active" && roleHasCapability(user.role, "manageStorage");
 }
 
 export function quotaExceeded(usedBytes: number, reservedBytes: number, requestedBytes: number, limitBytes: number | null): boolean {

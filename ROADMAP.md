@@ -127,9 +127,11 @@ phase listed below.
   execution (Phase 5), real SQL execution in the Query Editor (Phase
   6), Storage's real object storage backing (Phase 7 — needs a real
   bucket-storage layer, not just Postgres), Users/Roles reading from
-  `protodb_admin.users` instead of the seed list (Phase 8), and Audit
+  `protodb_admin.users` instead of demo state (Phase 8), and Audit
   Log reading from `protodb_admin.audit_log` (Phase 9, which auth
-  routes already write real rows into).
+  routes already write real rows into). The Phase 8 interface remains
+  demo-only; Phase 10 must decide how live invitations and resource
+  permissions are stored/enforced and read actual RLS catalogs.
 
 ## Phase 11 — Production Readiness
 **Goal:** Ready to actually run somewhere other than a laptop.
@@ -154,7 +156,7 @@ phase listed below.
 | 5 — Schema Designer & Visualizer | ✅ Done |
 | 6 — Advanced SQL Editor & Results | ✅ Done |
 | 7 — Storage Management | ✅ Done |
-| 8 — Users, Roles & Permissions | ✅ Done |
+| 8 — Users, Roles & Permissions | ✅ Done (demo-only interface; live integration remains in Phase 10) |
 | 9 — Audit Logs & System Monitoring | ✅ Done |
 | 10 — Backend API & Real Data Integration | 🚧 In progress (Part 1: DB + auth + Dashboard done) |
 | 11 — Production Readiness | Not started |

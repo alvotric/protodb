@@ -1,4 +1,5 @@
 import type { SessionUser } from "@/lib/auth/session";
+import { roleHasCapability } from "./role-capabilities.ts";
 
 export type SchemaMutationRole = "Owner" | "Admin";
 
@@ -7,12 +8,12 @@ export type SchemaMutationRole = "Owner" | "Admin";
  * may execute them. Editor/Viewer accounts remain read/data-only.
  */
 export function canManageSchema(user: SessionUser): boolean {
-  return user.role === "Owner" || user.role === "Admin";
+  return roleHasCapability(user.role, "manageSchema");
 }
 
 /** Arbitrary SQL may change or remove data, so only Owner/Admin can execute it. */
 export function canExecuteSql(user: SessionUser): boolean {
-  return user.role === "Owner" || user.role === "Admin";
+  return roleHasCapability(user.role, "executeSql");
 }
 
 export function sqlExecutionDeniedResponse(user: SessionUser): string {
@@ -25,7 +26,7 @@ export function schemaMutationDeniedResponse(user: SessionUser): string {
 
 /** Editors may change table data; viewers are read-only. */
 export function canMutateTableData(user: SessionUser): boolean {
-  return user.role === "Owner" || user.role === "Admin" || user.role === "Editor";
+  return roleHasCapability(user.role, "mutateTableData");
 }
 
 export function tableDataMutationDeniedResponse(user: SessionUser): string {

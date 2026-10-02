@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from "crypto";
 import { cookies } from "next/headers";
 import { query, queryOne } from "@/lib/db/client";
+import type { AccountStatus, AppRole } from "@/lib/auth/role-capabilities";
 
 const SESSION_COOKIE = "protodb_session";
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -9,8 +10,8 @@ export interface SessionUser {
   id: string;
   email: string;
   name: string;
-  role: "Owner" | "Admin" | "Editor" | "Viewer";
-  status: "active" | "invited" | "suspended";
+  role: AppRole;
+  status: AccountStatus;
 }
 
 function hashToken(token: string): string {

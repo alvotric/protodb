@@ -130,12 +130,18 @@ tests. Its S3-compatible lifecycle test is skipped unless
 That test requires a pre-created, dedicated test bucket containing
 `test` in its name and a loopback MinIO endpoint; it refuses remote
 endpoints and deletes only the uniquely named test object it creates.
-- **`/users`** — Phase 8's real deliverable: a team member list
-  (invite, change role, suspend/reactivate, remove — all real state
-  changes), an interactive per-resource permission matrix (Owner/Admin
-  fixed, Editor/Viewer adjustable — click a pill to cycle Full → Edit
-  → View → None), and a read-only row-level security policy viewer
-  shaped like a real `pg_policies` summary.
+- **`/users`** — Phase 8's authenticated demo interface: the roster,
+  invitations, member lifecycle actions, resource-scoped permission
+  examples, and RLS policy examples are local session state only.
+  Invites are not emailed, and these demo changes are not persisted or
+  enforced. A separate capability table documents the existing
+  server-side role checks. The RLS viewer shows clearly labeled sample
+  data and does not query PostgreSQL. Live roster, permission, invite,
+  and RLS catalog integration remains deferred to Phase 10.
+Run `npm run test:phase8` for fixed-role capability and demo workflow
+tests. These cover local member/invitation safeguards, resource-scoped
+permission examples, and sample RLS metadata; they do not imply live
+Users APIs or target-database RLS introspection.
 - **`/audit`** — Phase 9's real deliverable (audit half): a
   searchable/filterable audit trail (actor, action, resource, result)
   and a System Health view (connection pool, error rate with

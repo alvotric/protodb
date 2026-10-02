@@ -1,54 +1,56 @@
 import { ShieldCheck, ShieldOff, Table2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { rlsStatus } from "@/lib/mock-data";
+import { EmptyState } from "@/components/ui/empty-state";
+import type { DemoRlsTable } from "@/lib/users/phase8-demo";
 
-/**
- * Phase 8 — Users, Roles & Permissions.
- * Read-only, as the roadmap specifies -- this shows what's configured
- * (mock data shaped like a real `pg_policies` summary would be), it
- * doesn't let you write policies from here. Real RLS is a Postgres
- * feature Phase 10 would read from an actual connection; this is the
- * viewer half only.
- */
-export function RlsPolicyViewer() {
+export function RlsPolicyViewer({ tables }: { tables: DemoRlsTable[] }) {
+  if (tables.length === 0) {
+    return (
+      <Card className="p-1">
+        <EmptyState
+          icon={Table2}
+          title="No demo RLS table samples"
+          description="No sample policies are available. The target database has not been queried."
+        />
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      {rlsStatus.map((table) => (
-        <Card key={table.table} className="p-4">
-          <div className="flex items-center gap-2.5">
+      {tables.map((table) => (
+        <Card key={`${table.schema}.${table.table}`} className="p-4">
+          <div className="flex flex-wrap items-center gap-2.5">
             <Table2 className="h-4 w-4 text-ink-faint" />
-            <span className="font-mono text-sm text-ink">{table.table}</span>
-            <Badge tone={table.enabled ? "success" : "neutral"} className="ml-auto">
-              {table.enabled ? (
-                <>
-                  <ShieldCheck className="h-3 w-3" />
-                  RLS enabled
-                </>
-              ) : (
-                <>
-                  <ShieldOff className="h-3 w-3" />
-                  RLS disabled
-                </>
-              )}
-            </Badge>
+            <span className="font-mono text-sm text-ink">{table.schema}.{table.table}</span>
+            <div className="ml-auto flex items-center gap-2">
+              <Badge tone="warning">Demo sample</Badge>
+              <Badge tone={table.rlsEnabled ? "success" : "neutral"}>
+                {table.rlsEnabled ? <><ShieldCheck className="h-3 w-3" /> RLS enabled (sample)</> : <><ShieldOff className="h-3 w-3" /> RLS disabled (sample)</>}
+              </Badge>
+              <Badge tone={table.forceRls ? "warning" : "neutral"}>FORCE RLS: {table.forceRls ? "on" : "off"}</Badge>
+            </div>
           </div>
 
-          {table.policies.length > 0 && (
-            <div className="mt-3 space-y-2 border-t border-border pt-3">
+          {table.policies.length > 0 ? (
+            <div className="mt-3 space-y-3 border-t border-border pt-3">
               {table.policies.map((policy) => (
-                <div key={policy.name} className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-mono text-ink">{policy.name}</span>
-                  <Badge tone="accent">{policy.command}</Badge>
-                  <span className="font-mono text-ink-faint">USING ({policy.using})</span>
+                <div key={policy.name} className="rounded-lg bg-surface p-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-mono text-ink">{policy.name}</span>
+                    <Badge tone="accent">{policy.command}</Badge>
+                    <Badge tone={policy.mode === "permissive" ? "neutral" : "warning"}>{policy.mode}</Badge>
+                    <span className="text-ink-muted">Roles: {policy.roles.length ? policy.roles.join(", ") : "none listed"}</span>
+                  </div>
+                  <p className="mt-2 break-words font-mono text-[11px] text-ink-faint">USING: {policy.using ?? "Not specified"}</p>
+                  <p className="mt-1 break-words font-mono text-[11px] text-ink-faint">WITH CHECK: {policy.withCheck ?? "Not specified"}</p>
                 </div>
               ))}
             </div>
-          )}
-
-          {table.enabled && table.policies.length === 0 && (
+          ) : (
             <p className="mt-3 border-t border-border pt-3 text-xs text-ink-faint">
-              RLS is on with no policies defined -- every row is denied by default.
+              No sample policies are listed for this demo table. This is not a statement about the target database or effective row access.
             </p>
           )}
         </Card>

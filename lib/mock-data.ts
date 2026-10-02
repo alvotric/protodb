@@ -87,23 +87,6 @@ export const queryHistory: QueryHistoryItem[] = [
   },
 ];
 
-export interface TeamMember {
-  id: string;
-  name: string;
-  email: string;
-  role: "Owner" | "Admin" | "Editor" | "Viewer";
-  status: "active" | "invited" | "suspended";
-  lastActive: string;
-}
-
-export const teamMembers: TeamMember[] = [
-  { id: "u_01", name: "Amelia Cross", email: "amelia@protodb.dev", role: "Owner", status: "active", lastActive: "2026-09-02T15:02:00Z" },
-  { id: "u_02", name: "Noah Farrell", email: "noah@protodb.dev", role: "Admin", status: "active", lastActive: "2026-09-02T14:22:00Z" },
-  { id: "u_03", name: "Priya Desai", email: "priya@protodb.dev", role: "Editor", status: "active", lastActive: "2026-09-01T18:40:00Z" },
-  { id: "u_04", name: "Lucas Bergman", email: "lucas@protodb.dev", role: "Viewer", status: "invited", lastActive: "—" },
-  { id: "u_05", name: "Sofia Wren", email: "sofia@protodb.dev", role: "Editor", status: "suspended", lastActive: "2026-08-14T09:00:00Z" },
-];
-
 export interface AuditEntry {
   id: string;
   actor: string;
@@ -502,70 +485,4 @@ export const storageFiles: StorageFileSeed[] = [
     modifiedAt: "2026-08-25T11:00:00Z",
     content: "Nightly backups run at 03:00 UTC. Retained for 30 days.\nRestore procedure: see runbook in documents/contracts.",
   },
-];
-
-/**
- * Phase 8 — Users, Roles & Permissions.
- */
-export type PermissionLevel = "full" | "edit" | "view" | "none";
-
-export interface ResourcePermission {
-  resource: string;
-  owner: PermissionLevel;
-  admin: PermissionLevel;
-  editor: PermissionLevel;
-  viewer: PermissionLevel;
-}
-
-export const defaultPermissions: ResourcePermission[] = [
-  { resource: "Database & Schema", owner: "full", admin: "full", editor: "edit", viewer: "view" },
-  { resource: "Table Data", owner: "full", admin: "full", editor: "edit", viewer: "view" },
-  { resource: "SQL Queries", owner: "full", admin: "full", editor: "edit", viewer: "view" },
-  { resource: "Storage", owner: "full", admin: "full", editor: "edit", viewer: "view" },
-  { resource: "Users & Roles", owner: "full", admin: "edit", editor: "view", viewer: "none" },
-  { resource: "Audit Log", owner: "full", admin: "view", editor: "view", viewer: "none" },
-  { resource: "Settings", owner: "full", admin: "edit", editor: "none", viewer: "none" },
-];
-
-export interface RlsPolicy {
-  name: string;
-  command: "select" | "insert" | "update" | "delete" | "all";
-  using: string;
-}
-
-export interface RlsTableStatus {
-  table: string;
-  enabled: boolean;
-  policies: RlsPolicy[];
-}
-
-export const rlsStatus: RlsTableStatus[] = [
-  {
-    table: "users",
-    enabled: true,
-    policies: [
-      { name: "users_read_own", command: "select", using: "auth.uid() = id" },
-      { name: "users_update_own", command: "update", using: "auth.uid() = id" },
-    ],
-  },
-  {
-    table: "orders",
-    enabled: true,
-    policies: [{ name: "orders_owner_only", command: "all", using: "auth.uid() = user_id" }],
-  },
-  {
-    table: "order_items",
-    enabled: true,
-    policies: [
-      { name: "order_items_via_order", command: "select", using: "order_id in (select id from orders where user_id = auth.uid())" },
-    ],
-  },
-  { table: "products", enabled: false, policies: [] },
-  {
-    table: "sessions",
-    enabled: true,
-    policies: [{ name: "sessions_owner_only", command: "all", using: "auth.uid() = user_id" }],
-  },
-  { table: "audit_events", enabled: true, policies: [{ name: "audit_admin_read", command: "select", using: "auth.role() in ('owner','admin')" }] },
-  { table: "webhooks", enabled: false, policies: [] },
 ];
