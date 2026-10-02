@@ -15,6 +15,7 @@ Table View, the Schema Designer, and the SQL Editor.
 cp .env.example .env.local   # then fill in DATABASE_URL
 psql "$DATABASE_URL" -f migrations/001_protodb_admin_schema.sql
 psql "$DATABASE_URL" -f migrations/002_sql_editor_history.sql
+psql "$DATABASE_URL" -f migrations/003_storage_metadata.sql
 npm install
 npm run dev
 ```
@@ -73,16 +74,62 @@ Then open http://localhost:3000 — it redirects to `/dashboard` (or
   connection. When the database is unavailable, the workspace labels
   itself as demo mode and the restricted simulator rejects unsupported
   query shapes instead of presenting unfiltered results as valid.
-- **`/storage`** — Phase 7's real deliverable: bucket list with real
-  computed usage stats, a per-bucket file browser (folders, search,
-  list/grid views). Upload is genuinely real -- drag-and-drop or the
-  Upload button reads actual files via the browser File API, no fake
-  progress bar. Text/JSON uploads get real content read in and
-  previewed; images get a real thumbnail via a live object URL.
-  Rename, bulk delete, and bucket settings (public/private, size
-  limit) all work. Seed mock image/PDF files have no real bytes
-  anywhere, so they get a generic icon and an honest "nothing to
-  download" note rather than a fabricated file.
+- **`/storage`** — Phase 7 uses a server-only S3-compatible provider
+  (AWS S3 reference; MinIO for local development) for object bytes and
+  PostgreSQL for logical buckets, object metadata, and upload quota
+  reservations. The configured physical S3 bucket is private; logical
+  buckets are application metadata, not separate provider buckets.
+  Owner/Admin users create buckets and change visibility/limits;
+  Owner/Admin/Editor users upload, rename, and delete; all signed-in
+  roles can list and download. Private objects require an authenticated
+  app API request before a short-lived download URL is issued. Public
+  logical buckets use an app route that checks persisted visibility
+  before redirecting to a short-lived URL. No storage provider
+  configuration means clearly labeled temporary demo data; partial or
+  invalid live configuration shows an error and does not fall back to
+  fixtures. Apply migration 003 before using live Storage.
+
+### Storage configuration
+
+Set `STORAGE_PROVIDER=s3`, `S3_BUCKET`, and `S3_REGION` for live
+storage. On AWS, leave `S3_ACCESS_KEY_ID` and
+`S3_SECRET_ACCESS_KEY` unset when the server has a least-privilege IAM
+role. For MinIO or another custom endpoint, set `S3_ENDPOINT`,
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and
+`S3_FORCE_PATH_STYLE=true`. These variables are server-only; never
+prefix them with `NEXT_PUBLIC_`.
+
+For local MinIO, run the MinIO server separately (for example, using
+the official MinIO container with a persistent local volume), create
+the physical bucket once in its console, then point the app at
+`http://127.0.0.1:9000`. Use disposable local credentials and data.
+Configure the physical bucket CORS policy to permit the app origin's
+presigned `POST` uploads. In production, pre-create the private
+physical bucket and grant the app identity only the required bucket
+listing, object `GetObject`, `PutObject`, and `DeleteObject` operations;
+do not enable public ACLs or broad anonymous bucket access. The app
+does not create or change physical provider buckets.
+
+Uploads use short-lived presigned POST policies with an enforced
+declared-size ceiling, then verify provider object metadata before
+committing PostgreSQL metadata. PostgreSQL reserves the requested size
+under a per-bucket transaction lock to prevent concurrent uploads from
+exceeding configured limits. Expired incomplete uploads are cleaned up
+opportunistically during bucket listing. Usage comes from verified
+object metadata and can temporarily reflect cleanup/reconciliation
+work; it is not provider billing telemetry. If an upload succeeds at
+the provider but metadata finalization fails, the UI reports the
+failure and attempts cleanup; expired reservations provide a later
+cleanup path. Objects whose provider deletion or metadata removal
+fails stay hidden from listings and are retried during later bucket
+loads.
+
+Run `npm run test:phase7` for focused Storage policy/configuration
+tests. Its S3-compatible lifecycle test is skipped unless
+`STORAGE_TEST_DISPOSABLE=true` and all `STORAGE_TEST_*` values are set.
+That test requires a pre-created, dedicated test bucket containing
+`test` in its name and a loopback MinIO endpoint; it refuses remote
+endpoints and deletes only the uniquely named test object it creates.
 - **`/users`** — Phase 8's real deliverable: a team member list
   (invite, change role, suspend/reactivate, remove — all real state
   changes), an interactive per-resource permission matrix (Owner/Admin
@@ -152,6 +199,8 @@ lib/
   utils.ts                cn() helper
 migrations/
   001_protodb_admin_schema.sql   run this once against your database
+  002_sql_editor_history.sql     Phase 6 query history
+  003_storage_metadata.sql       Phase 7 Storage metadata
 middleware.ts            redirects unauthenticated requests to /login
 ```
 

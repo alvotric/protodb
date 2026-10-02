@@ -4,7 +4,7 @@ import { Database, Lock, Globe } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes } from "@/components/storage/storage-types";
-import type { StorageBucket } from "@/lib/mock-data";
+import type { StorageBucket } from "@/lib/storage/types";
 
 export function BucketCard({
   bucket,
@@ -17,8 +17,8 @@ export function BucketCard({
   usedBytes: number;
   onOpen: () => void;
 }) {
-  const limitBytes = bucket.sizeLimitMb ? bucket.sizeLimitMb * 1024 * 1024 : null;
-  const pct = limitBytes ? Math.min(100, Math.round((usedBytes / limitBytes) * 100)) : null;
+  const limitBytes = bucket.sizeLimitBytes;
+  const pct = limitBytes === null ? null : limitBytes === 0 ? (usedBytes > 0 ? 100 : 0) : Math.min(100, Math.round((usedBytes / limitBytes) * 100));
 
   return (
     <button onClick={onOpen} className="text-left">
@@ -27,16 +27,17 @@ export function BucketCard({
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
             <Database className="h-5 w-5" />
           </div>
-          <Badge tone={bucket.public ? "accent" : "neutral"}>
-            {bucket.public ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-            {bucket.public ? "Public" : "Private"}
+          <Badge tone={bucket.isPublic ? "accent" : "neutral"}>
+            {bucket.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+            {bucket.isPublic ? "Public" : "Private"}
           </Badge>
         </div>
 
-        <p className="mt-4 font-mono text-[15px] text-ink">{bucket.name}</p>
+        <p className="mt-4 font-mono text-[15px] text-ink">{bucket.displayName}</p>
+        <p className="mt-0.5 font-mono text-[11px] text-ink-faint">{bucket.name}</p>
         <p className="mt-1 text-xs text-ink-faint">
           {fileCount} file{fileCount === 1 ? "" : "s"} · {formatBytes(usedBytes)}
-          {bucket.sizeLimitMb ? ` of ${bucket.sizeLimitMb} MB` : ""}
+          {limitBytes !== null ? ` of ${formatBytes(limitBytes)}` : ""}
         </p>
 
         {pct !== null && (

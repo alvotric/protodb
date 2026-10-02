@@ -1,17 +1,20 @@
-export type FileKind = "image" | "text" | "json" | "pdf" | "other";
+import type { StorageFileKind } from "@/lib/storage/types";
+
+export type FileKind = StorageFileKind;
 
 export interface StorageFile {
   id: string;
+  bucketId?: string;
   name: string;
   folder: string;
   kind: FileKind;
   sizeBytes: number;
   modifiedAt: string;
-  /** Real text content -- present for seed text/json files and for any real uploaded text-like file (read via FileReader). */
+  contentType?: string;
+  etag?: string | null;
+  checksum?: string | null;
   content?: string;
-  /** Real blob URL (URL.createObjectURL) -- present for real uploaded files, so images get a genuine thumbnail/preview instead of a placeholder. */
   objectUrl?: string;
-  /** The actual File object for a real upload, kept so Download can hand back the exact original bytes. */
   sourceFile?: File;
   isUpload?: boolean;
 }
