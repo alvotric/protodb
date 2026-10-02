@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:phase5": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase5-schema-validation.test.mjs"
+    "test:phase5": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase5-schema-validation.test.mjs",
+    "test:phase6": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase6-sql-editor.test.mjs"
   },
   "dependencies": {
     "next": "^15.1.4",
@@ -17,7 +18,8 @@
     "framer-motion": "^11.15.0",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.6.0",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "pg-cursor": "^2.22.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

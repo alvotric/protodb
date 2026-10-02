@@ -1,10 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Sparkles } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { tokenizeSQL, type SqlTokenType } from "@/lib/sql-highlight";
-import { tables, tableColumns } from "@/lib/mock-data";
 
 /**
  * Phase 6 — Advanced SQL Editor & Results.
@@ -33,24 +31,48 @@ const TOKEN_CLASSES: Record<SqlTokenType, string> = {
   whitespace: "",
 };
 
-const ALL_IDENTIFIERS = Array.from(
-  new Set([...tables.map((t) => t.name), ...Object.values(tableColumns).flatMap((cols) => cols.map((c) => c.name))])
-).sort();
-
 function currentWord(value: string, cursor: number): { word: string; start: number } {
   let start = cursor;
   while (start > 0 && /[a-zA-Z0-9_]/.test(value[start - 1])) start--;
-  return { word: value.slice(start, cursor), start };
+  if (start > 0 && value[start - 1] === '"') start--;
+  return { word: value.slice(value[start] === '"' ? start + 1 : start, cursor), start };
+}
+
+function suggestionParts(identifier: string): { finalPart: string; finalSqlPart: string; qualified: boolean } {
+  let quoted = false;
+  let componentStart = 0;
+  let qualified = false;
+  for (let index = 0; index < identifier.length; index++) {
+    if (identifier[index] === '"') {
+      if (quoted && identifier[index + 1] === '"') {
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (identifier[index] === "." && !quoted) {
+      componentStart = index + 1;
+      qualified = true;
+    }
+  }
+  const finalSqlPart = identifier.slice(componentStart);
+  const finalPart = finalSqlPart.replace(/^"|"$/g, "").replace(/""/g, '"');
+  return { finalPart, finalSqlPart, qualified };
 }
 
 export function SqlEditor({
   value,
   onChange,
   onRun,
+  identifiers,
+  errorOffset,
+  focusErrorToken,
 }: {
   value: string;
   onChange: (next: string) => void;
   onRun: () => void;
+  identifiers: string[];
+  errorOffset: number | null;
+  focusErrorToken: number;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const overlayRef = useRef<HTMLPreElement>(null);
@@ -62,13 +84,34 @@ export function SqlEditor({
   const suggestions = useMemo(() => {
     if (word.length < 2) return [];
     const lower = word.toLowerCase();
-    return ALL_IDENTIFIERS.filter((id) => id.toLowerCase().startsWith(lower) && id.toLowerCase() !== lower).slice(0, 8);
-  }, [word]);
+    return identifiers.filter((id) => {
+      const match = suggestionParts(id).finalPart.toLowerCase();
+      return match.startsWith(lower) && match !== lower;
+    }).slice(0, 8);
+  }, [identifiers, word]);
+
+  useEffect(() => {
+    if (focusErrorToken === 0 || errorOffset === null) return;
+    const editor = textareaRef.current;
+    if (!editor) return;
+    const offset = Math.max(0, Math.min(errorOffset, value.length));
+    editor.focus();
+    editor.setSelectionRange(offset, Math.min(value.length, offset + 1));
+    const lineHeight = 24;
+    const line = value.slice(0, offset).split("\n").length - 1;
+    editor.scrollTop = Math.max(0, line * lineHeight - editor.clientHeight / 2);
+    setCursor(offset);
+  }, [errorOffset, focusErrorToken, value]);
 
   function insertSuggestion(suggestion: string) {
-    const next = value.slice(0, start) + suggestion + value.slice(cursor);
+    const parts = suggestionParts(suggestion);
+    const existingQualifier = value.slice(0, start).trimEnd().endsWith(".");
+    const insertion = parts.qualified && existingQualifier
+      ? parts.finalSqlPart
+      : suggestion;
+    const next = value.slice(0, start) + insertion + value.slice(cursor);
     onChange(next);
-    const nextCursor = start + suggestion.length;
+    const nextCursor = start + insertion.length;
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextCursor, nextCursor);

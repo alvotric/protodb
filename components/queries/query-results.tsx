@@ -5,11 +5,15 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Table, TableHead, TableBody, TableRow, TableHeaderCell, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import type { QueryOutcome } from "@/lib/sql-mock-engine";
-import type { CellValue } from "@/lib/mock-data";
+import type { QueryOutcome } from "@/lib/queries/types";
+import { toCsv, toJson } from "@/lib/queries/export";
 
-function formatCell(value: CellValue): string {
-  return value === null ? "NULL" : String(value);
+type DisplayOutcome = QueryOutcome & { source: "live" | "demo" };
+
+function formatCell(value: unknown): string {
+  if (value === null) return "NULL";
+  if (typeof value === "object") return JSON.stringify(value) ?? "";
+  return String(value);
 }
 
 function downloadBlob(content: string, filename: string, type: string) {
@@ -21,25 +25,18 @@ function downloadBlob(content: string, filename: string, type: string) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-function toCSV(columns: string[], rows: Record<string, CellValue>[]): string {
-  const escape = (v: CellValue) => {
-    const s = v === null ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const lines = [columns.join(","), ...rows.map((r) => columns.map((c) => escape(r[c])).join(","))];
-  return lines.join("\n");
-}
-
-/**
- * Phase 6 — Advanced SQL Editor & Results.
- * Export is fully real (not mocked) -- it's pure client-side data
- * transformation of whatever `runMockQuery()` returned, the same as
- * every other export button built across this project.
- */
-export function QueryResults({ outcome, loading }: { outcome: QueryOutcome | null; loading: boolean }) {
+export function QueryResults({
+  outcome,
+  loading,
+  onGoToError,
+}: {
+  outcome: DisplayOutcome | null;
+  loading: boolean;
+  onGoToError: () => void;
+}) {
   if (loading) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-muted">
@@ -67,8 +64,15 @@ export function QueryResults({ outcome, loading }: { outcome: QueryOutcome | nul
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           <div>
             <p className="text-sm text-danger">{outcome.message}</p>
-            {outcome.position !== undefined && outcome.position >= 0 && (
-              <p className="mt-1 font-mono text-xs text-ink-faint">at position {outcome.position}</p>
+            {"location" in outcome && outcome.location
+              ? <p className="mt-1 font-mono text-xs text-ink-faint">Line {outcome.location.line}, column {outcome.location.column} (PostgreSQL position {outcome.position})</p>
+              : "position" in outcome && outcome.position !== undefined
+                ? <p className="mt-1 font-mono text-xs text-ink-faint">Reported character position {outcome.position}.</p>
+                : null}
+            {"location" in outcome && outcome.location && (
+              <Button className="mt-3" size="sm" variant="secondary" onClick={onGoToError}>
+                Go to error location
+              </Button>
             )}
           </div>
         </div>
@@ -88,13 +92,13 @@ export function QueryResults({ outcome, loading }: { outcome: QueryOutcome | nul
           {outcome.durationMs}ms
         </span>
         <Badge tone="success" dot>
-          Success
+          {outcome.source === "live" ? "Live database" : "Demo result"}
         </Badge>
         <div className="ml-auto flex items-center gap-1.5">
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => downloadBlob(toCSV(outcome.columns, outcome.rows), "query-results.csv", "text/csv")}
+            onClick={() => downloadBlob(toCsv(outcome.columns, outcome.rows), "query-results.csv", "text/csv;charset=utf-8")}
           >
             <Download className="h-3.5 w-3.5" />
             CSV
@@ -102,7 +106,7 @@ export function QueryResults({ outcome, loading }: { outcome: QueryOutcome | nul
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => downloadBlob(JSON.stringify(outcome.rows, null, 2), "query-results.json", "application/json")}
+            onClick={() => downloadBlob(toJson(outcome.rows), "query-results.json", "application/json;charset=utf-8")}
           >
             <Download className="h-3.5 w-3.5" />
             JSON
@@ -110,7 +114,21 @@ export function QueryResults({ outcome, loading }: { outcome: QueryOutcome | nul
         </div>
       </div>
 
-      {outcome.rows.length === 0 ? (
+      {outcome.truncated && (
+        <p className="border-b border-warning/25 bg-warning/5 px-4 py-2 text-xs text-warning">
+          Output was capped at {outcome.rowCount.toLocaleString()} returned rows or 1 MB. The query may have produced more data.
+        </p>
+      )}
+
+      {outcome.columns.length === 0 ? (
+        <EmptyState
+          icon={Rows3}
+          title="Statement completed"
+          description={`${outcome.rowCount.toLocaleString()} row${outcome.rowCount === 1 ? "" : "s"} affected. This statement returned no result columns.`}
+        />
+      ) : outcome.rows.length === 0 && outcome.truncated ? (
+        <EmptyState icon={Rows3} title="Result output limit reached" description="The first result row exceeded the 1 MB output limit." />
+      ) : outcome.rows.length === 0 ? (
         <EmptyState icon={Rows3} title="Zero rows" description="The query ran successfully but matched nothing." />
       ) : (
         <div className="flex-1 overflow-auto">

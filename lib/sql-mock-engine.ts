@@ -1,16 +1,12 @@
 import { tables, tableRows, type TableRowData, type CellValue } from "@/lib/mock-data";
+import { parseMockQueryTail } from "@/lib/queries/mock-query-shape";
 
 /**
  * Phase 6 — Advanced SQL Editor & Results.
  *
- * No real database exists until Phase 10, so this doesn't pretend to
- * be one -- it recognizes one shape (`SELECT <cols> FROM <table>
- * [WHERE col = value] [LIMIT n]`) against the real mock row data
- * already in lib/mock-data.ts, and returns a clear, specific error for
- * anything else (unknown table, unknown column, or a query shape this
- * doesn't parse) rather than a fabricated result. That's the honest
- * boundary of what a UI-only phase can simulate; full SQL execution
- * is explicitly Phase 10's job.
+ * This is only the explicitly labeled offline/demo fallback. It
+ * recognizes one simple SELECT shape against mock rows and rejects
+ * unsupported SQL rather than presenting simulated results as live.
  */
 export interface QuerySuccess {
   ok: true;
@@ -30,9 +26,6 @@ export interface QueryFailure {
 export type QueryOutcome = QuerySuccess | QueryFailure;
 
 const SELECT_PATTERN = /^select\s+(.+?)\s+from\s+([a-zA-Z_][a-zA-Z0-9_]*)\b(.*)$/is;
-const WHERE_STRING_PATTERN = /where\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*'([^']*)'/i;
-const WHERE_NUMBER_PATTERN = /where\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(-?\d+(?:\.\d+)?)/i;
-const LIMIT_PATTERN = /limit\s+(\d+)/i;
 
 export async function runMockQuery(sqlRaw: string): Promise<QueryOutcome> {
   const start = performance.now();
@@ -52,12 +45,20 @@ export async function runMockQuery(sqlRaw: string): Promise<QueryOutcome> {
     return {
       ok: false,
       message:
-        "This preview only simulates simple `SELECT <columns> FROM <table>` queries (optionally with WHERE col = value and LIMIT n). Full SQL execution -- joins, writes, DDL -- arrives in Phase 10.",
+        "This demo only simulates simple SELECT queries with an optional equality WHERE and LIMIT. Live SQL execution requires a configured database.",
       durationMs: elapsed(),
     };
   }
 
   const [, colsPart, tableName, rest] = match;
+  const restMatch = parseMockQueryTail(rest);
+  if (!restMatch) {
+    return {
+      ok: false,
+      message: "Demo mode supports only simple SELECT queries with an optional equality WHERE and LIMIT. This SQL was not evaluated.",
+      durationMs: elapsed(),
+    };
+  }
   const table = tables.find((t) => t.name.toLowerCase() === tableName.toLowerCase());
   if (!table) {
     const position = sql.toLowerCase().indexOf(tableName.toLowerCase());
@@ -87,24 +88,24 @@ export async function runMockQuery(sqlRaw: string): Promise<QueryOutcome> {
   }
 
   let resultRows = sourceRows;
-  const whereStr = rest.match(WHERE_STRING_PATTERN);
-  const whereNum = rest.match(WHERE_NUMBER_PATTERN);
-  if (whereStr) {
-    const [, col, value] = whereStr;
+  const { whereColumn, whereStringValue, whereNumberValue } = restMatch;
+  if (whereColumn && whereStringValue !== null) {
+    const col = whereColumn;
     if (!availableColumns.includes(col)) {
       return { ok: false, message: `column "${col}" does not exist`, durationMs: elapsed() };
     }
+    const value = whereStringValue.replace(/''/g, "'");
     resultRows = resultRows.filter((r) => String(r[col] ?? "") === value);
-  } else if (whereNum) {
-    const [, col, value] = whereNum;
+  } else if (whereColumn && whereNumberValue !== null) {
+    const col = whereColumn;
     if (!availableColumns.includes(col)) {
       return { ok: false, message: `column "${col}" does not exist`, durationMs: elapsed() };
     }
-    resultRows = resultRows.filter((r) => String(r[col] ?? "") === value);
+    resultRows = resultRows.filter((r) => String(r[col] ?? "") === whereNumberValue);
   }
 
-  const limitMatch = rest.match(LIMIT_PATTERN);
-  if (limitMatch) resultRows = resultRows.slice(0, parseInt(limitMatch[1], 10));
+  const limit = restMatch.limit;
+  if (limit) resultRows = resultRows.slice(0, parseInt(limit, 10));
 
   const projected: TableRowData[] =
     columns.length === availableColumns.length

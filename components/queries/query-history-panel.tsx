@@ -3,13 +3,15 @@
 import { useState } from "react";
 import { CheckCircle2, XCircle, Loader2, Bookmark, Trash2 } from "lucide-react";
 import { Tabs } from "@/components/ui/tabs";
-import { timeAgo, type QueryHistoryItem } from "@/lib/mock-data";
+import { timeAgo } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import type { QueryHistoryRecord } from "@/lib/queries/types";
 
 export interface SavedQuery {
   id: string;
   name: string;
   sql: string;
+  createdAt?: string;
 }
 
 const statusIcon = { success: CheckCircle2, error: XCircle, running: Loader2 } as const;
@@ -20,11 +22,23 @@ export function QueryHistoryPanel({
   saved,
   onLoad,
   onRemoveSaved,
+  historyLoading,
+  historyError,
+  savedLoading,
+  savedError,
+  busySavedId,
+  onRetry,
 }: {
-  history: QueryHistoryItem[];
+  history: QueryHistoryRecord[];
   saved: SavedQuery[];
   onLoad: (sql: string) => void;
   onRemoveSaved: (id: string) => void;
+  historyLoading: boolean;
+  historyError: string | null;
+  savedLoading: boolean;
+  savedError: string | null;
+  busySavedId: string | null;
+  onRetry: () => void;
 }) {
   const [tab, setTab] = useState<"history" | "saved">("history");
 
@@ -43,8 +57,15 @@ export function QueryHistoryPanel({
 
       <div className="flex-1 overflow-y-auto p-2">
         {tab === "history" &&
-          (history.length === 0 ? (
-            <p className="px-2.5 py-6 text-center text-xs text-ink-faint">No queries run yet this session.</p>
+          (historyLoading ? (
+            <p className="px-2.5 py-6 text-center text-xs text-ink-faint">Loading query history…</p>
+          ) : historyError ? (
+            <div className="px-2.5 py-6 text-center">
+              <p className="text-xs text-danger">{historyError}</p>
+              <button onClick={onRetry} className="mt-2 text-xs text-accent hover:underline">Retry</button>
+            </div>
+          ) : history.length === 0 ? (
+            <p className="px-2.5 py-6 text-center text-xs text-ink-faint">No queries executed yet.</p>
           ) : (
             history.map((item) => {
               const Icon = statusIcon[item.status];
@@ -61,15 +82,23 @@ export function QueryHistoryPanel({
                   <div className="flex items-center gap-2 pl-[18px] text-[11px] text-ink-faint">
                     <span>{timeAgo(item.ranAt)}</span>
                     {item.rows !== null && <span>· {item.rows} rows</span>}
-                    {item.durationMs !== null && <span>· {item.durationMs}ms</span>}
+                    <span>· {item.durationMs}ms</span>
                   </div>
+                  {item.error && <p className="truncate pl-[18px] text-[11px] text-danger">{item.error}</p>}
                 </button>
               );
             })
           ))}
 
         {tab === "saved" &&
-          (saved.length === 0 ? (
+          (savedLoading ? (
+            <p className="px-2.5 py-6 text-center text-xs text-ink-faint">Loading saved queries…</p>
+          ) : savedError ? (
+            <div className="px-2.5 py-6 text-center">
+              <p className="text-xs text-danger">{savedError}</p>
+              <button onClick={onRetry} className="mt-2 text-xs text-accent hover:underline">Retry</button>
+            </div>
+          ) : saved.length === 0 ? (
             <p className="px-2.5 py-6 text-center text-xs text-ink-faint">No saved queries yet.</p>
           ) : (
             saved.map((item) => (
@@ -83,8 +112,9 @@ export function QueryHistoryPanel({
                 </button>
                 <button
                   onClick={() => onRemoveSaved(item.id)}
+                  disabled={busySavedId === item.id}
                   aria-label={`Remove ${item.name}`}
-                  className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
+                  className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 hover:bg-danger-soft hover:text-danger group-hover:opacity-100 disabled:opacity-50"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>

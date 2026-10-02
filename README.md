@@ -4,17 +4,17 @@ Standalone frontend for a private PostgreSQL admin platform. See
 **[ROADMAP.md](./ROADMAP.md)** for the full 11-phase plan — the
 authoritative scope reference from here on.
 
-Phase 10 replaces the Phase 1–9 mock data with real PostgreSQL-backed
-features one phase at a time. The current implementation includes a
-real database connection, authentication, Dashboard stats, and the
-Database Explorer/Table View (Phases 3–4). Other areas remain mock or
-local UI state until their Phase 10 pass.
+Phase 10 replaces Phase 1–9 mock data with real PostgreSQL-backed
+features incrementally. The current implementation includes database
+connectivity, authentication, Dashboard stats, the Database Explorer/
+Table View, the Schema Designer, and the SQL Editor.
 
 ## Setup (new in Phase 10)
 
 ```bash
 cp .env.example .env.local   # then fill in DATABASE_URL
 psql "$DATABASE_URL" -f migrations/001_protodb_admin_schema.sql
+psql "$DATABASE_URL" -f migrations/002_sql_editor_history.sql
 npm install
 npm run dev
 ```
@@ -22,8 +22,8 @@ npm run dev
 Visit the app — since a fresh database has no users yet, you'll be
 walked through creating the first admin account (it becomes Owner).
 Without `DATABASE_URL` set, the app still runs: every Phase 1–9 route
-works with mock data, and the Dashboard/login pages show an honest
-"not connected" state instead of crashing.
+remains clearly labeled demo/reference data where authentication is
+not required.
 
 Then open http://localhost:3000 — it redirects to `/dashboard` (or
 `/login` first, if you're not signed in).
@@ -59,16 +59,20 @@ Then open http://localhost:3000 — it redirects to `/dashboard` (or
   (buttons, badges, inputs, switch, tabs, cards, table, tooltip,
   modal, drawer, confirm dialog, command palette) shown with mock
   data, including loading/empty/error states you can toggle live.
-- **`/queries`** — Phase 6's real deliverable: a SQL workspace.
-  Fira Code editor with real syntax highlighting and basic
-  table/column autocomplete (both hand-rolled, no editor library),
-  multiple concurrent query tabs, session query history and named
-  saved queries, and a results grid with real CSV/JSON export. Query
-  *execution* is an honest simulation: it recognizes simple
-  `SELECT ... FROM <table>` (with WHERE col = value / LIMIT) against
-  the real mock row data from Phase 4, and gives a clear, specific
-  error for anything else rather than faking a result — genuine SQL
-  execution is Phase 10.
+- **`/queries`** — Phase 6's PostgreSQL-backed SQL workspace. It
+  supports one statement per run, with a 10-second statement timeout,
+  a 500-row / 1 MB result cap, and at most three concurrent executions
+  per server process. Only signed-in Owner/Admin users may execute SQL;
+  PostgreSQL privileges remain the final database boundary. Successful
+  statements commit; failed statements roll back. Apply migration 002
+  to enable per-user history (latest 100 runs); saved queries use
+  `protodb_admin.saved_queries` (up to 200 per account). Query history retains SQL text for the
+  owning user, so avoid embedding secrets in submitted SQL. The audit
+  log records execution status and timing metadata, not raw SQL.
+  Autocomplete uses metadata visible to the configured PostgreSQL
+  connection. When the database is unavailable, the workspace labels
+  itself as demo mode and the restricted simulator rejects unsupported
+  query shapes instead of presenting unfiltered results as valid.
 - **`/storage`** — Phase 7's real deliverable: bucket list with real
   computed usage stats, a per-bucket file browser (folders, search,
   list/grid views). Upload is genuinely real -- drag-and-drop or the
@@ -93,9 +97,8 @@ Then open http://localhost:3000 — it redirects to `/dashboard` (or
   profile, notification preferences (event type × in-app/email), and
   a danger zone. No external alerting integrations (Slack/PagerDuty)
   — out of scope per the roadmap.
-- Every route above is real and interactive; the Dashboard's stat
-  cards are now genuinely real (Phase 10), everything else still runs
-  on Phase 1–9 mock data until its own turn in Phase 10's continuation.
+- Routes listed above may combine live, demo, and UI-only pieces; each
+  page labels its data source and the behavior available in that mode.
 - **`/login`** — real authentication (Phase 10): a fresh database gets
   a one-time "create the first admin account" form; after that, a
   normal sign-in. Session cookies, hashed passwords (Node's built-in
