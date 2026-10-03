@@ -107,7 +107,10 @@ phase listed below.
 - API routes backing every page built in Phases 2–9, one phase at a time, in the same order
 - Real auth (replacing the static "Amelia Cross" mock user)
 - Real-time updates where it matters (active connections, running queries) via polling or websockets
-- Data migration: nothing to migrate yet since Phases 1–9 never wrote real data, but this is where that guarantee ends
+- Existing data: Phase 9 reads existing audit records and persists
+  notification preferences using the existing database infrastructure.
+  Phase 10 must preserve those records while integrating the remaining
+  page data; do not assume earlier phases left no persisted data.
 - **Non-goals:** none — this phase's job is specifically to remove every other phase's non-goals around "real data"
 
 **Progress so far (Part 1):**
@@ -126,10 +129,16 @@ phase listed below.
   (Phase 3), Table View writes (Phase 4), Schema Designer DDL
   execution (Phase 5), real SQL execution in the Query Editor (Phase
   6), Storage's real object storage backing (Phase 7 — needs a real
-  bucket-storage layer, not just Postgres), Users/Roles reading from
-  `protodb_admin.users` instead of demo state (Phase 8), and Audit
-  Log reading from `protodb_admin.audit_log` (Phase 9, which auth
-  routes already write real rows into). The Phase 8 interface remains
+  bucket-storage layer, not just Postgres), and Users/Roles reading
+  from `protodb_admin.users` instead of demo state (Phase 8). The
+  Phase 9 repair uses existing infrastructure where it already
+  exists: it reads `protodb_admin.audit_log` and persists notification
+  preferences using the existing database connection, schema, and
+  authenticated session. These are narrow Phase 9 integrations, not
+  completion of Phase 10. Phase 10 remains the broader API and real
+  data integration for pages 2–9, delivered in roadmap order. Phase 9
+  still has no historical monitoring source, notification delivery,
+  or workspace deletion path. The Phase 8 interface remains
   demo-only; Phase 10 must decide how live invitations and resource
   permissions are stored/enforced and read actual RLS catalogs.
 

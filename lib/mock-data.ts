@@ -87,71 +87,6 @@ export const queryHistory: QueryHistoryItem[] = [
   },
 ];
 
-export interface AuditEntry {
-  id: string;
-  actor: string;
-  action: string;
-  resource: string;
-  result: "success" | "failed";
-  ip: string;
-  at: string;
-}
-
-export const auditLog: AuditEntry[] = [
-  { id: "ev_9021", actor: "amelia@protodb.dev", action: "sql.execute", resource: "orders", result: "success", ip: "82.14.203.11", at: "2026-09-02T15:02:11Z" },
-  { id: "ev_9020", actor: "noah@protodb.dev", action: "schema.alter_table", resource: "products", result: "success", ip: "91.203.44.8", at: "2026-09-02T14:50:02Z" },
-  { id: "ev_9019", actor: "noah@protodb.dev", action: "sql.execute", resource: "order_items", result: "failed", ip: "91.203.44.8", at: "2026-09-02T14:22:47Z" },
-  { id: "ev_9018", actor: "system", action: "backup.completed", resource: "database", result: "success", ip: "—", at: "2026-09-02T03:00:00Z" },
-  { id: "ev_9017", actor: "priya@protodb.dev", action: "auth.login", resource: "session", result: "success", ip: "45.10.88.2", at: "2026-09-01T18:40:00Z" },
-  { id: "ev_9016", actor: "amelia@protodb.dev", action: "storage.upload", resource: "avatars", result: "success", ip: "82.14.203.11", at: "2026-09-01T16:10:00Z" },
-  { id: "ev_9015", actor: "lucas@protodb.dev", action: "auth.invite_accepted", resource: "team", result: "success", ip: "203.0.113.4", at: "2026-09-01T12:05:00Z" },
-  { id: "ev_9014", actor: "noah@protodb.dev", action: "users.role_changed", resource: "sofia@protodb.dev", result: "success", ip: "91.203.44.8", at: "2026-08-31T17:30:00Z" },
-  { id: "ev_9013", actor: "system", action: "schedule.fired", resource: "webhooks", result: "failed", ip: "—", at: "2026-08-31T09:00:00Z" },
-  { id: "ev_9012", actor: "priya@protodb.dev", action: "sql.execute", resource: "products", result: "success", ip: "45.10.88.2", at: "2026-08-30T20:12:00Z" },
-  { id: "ev_9011", actor: "amelia@protodb.dev", action: "storage.bucket_settings_changed", resource: "documents", result: "success", ip: "82.14.203.11", at: "2026-08-30T11:45:00Z" },
-  { id: "ev_9010", actor: "unknown", action: "auth.login", resource: "session", result: "failed", ip: "198.51.100.22", at: "2026-08-29T22:18:00Z" },
-  { id: "ev_9009", actor: "amelia@protodb.dev", action: "schema.create_table", resource: "webhooks", result: "success", ip: "82.14.203.11", at: "2026-08-29T11:20:00Z" },
-  { id: "ev_9008", actor: "system", action: "backup.completed", resource: "database", result: "success", ip: "—", at: "2026-08-29T03:00:00Z" },
-  { id: "ev_9007", actor: "noah@protodb.dev", action: "sql.execute", resource: "users", result: "success", ip: "91.203.44.8", at: "2026-08-28T14:55:00Z" },
-];
-
-/**
- * Phase 9 — Audit Logs & System Monitoring.
- */
-export const connectionPoolSeries = [12, 14, 13, 16, 19, 22, 24, 23, 20, 18, 21, 24, 22, 24];
-export const errorRateSeries = [0.4, 0.3, 0.6, 0.5, 1.2, 0.8, 0.3, 0.2, 0.4, 0.9, 0.3, 0.2, 0.3, 0.3];
-
-export interface SlowQueryLogEntry {
-  id: string;
-  sql: string;
-  durationMs: number;
-  at: string;
-}
-
-export const slowQueryLog: SlowQueryLogEntry[] = [
-  { id: "sq1", sql: "select * from order_items oi join products p on p.id = oi.product_id;", durationMs: 18240, at: "2026-09-02T13:10:00Z" },
-  { id: "sq2", sql: "select * from audit_events order by created_at desc;", durationMs: 4210, at: "2026-09-01T22:40:00Z" },
-  { id: "sq3", sql: "update orders set status = 'shipped' where created_at < now() - interval '30 days';", durationMs: 3870, at: "2026-08-31T08:15:00Z" },
-  { id: "sq4", sql: "select count(*) from sessions where expires_at < now();", durationMs: 2140, at: "2026-08-30T19:02:00Z" },
-];
-
-export interface NotificationPreference {
-  id: string;
-  label: string;
-  description: string;
-  inApp: boolean;
-  email: boolean;
-}
-
-export const notificationPreferences: NotificationPreference[] = [
-  { id: "query_failed", label: "A query fails", description: "Any SQL execution that returns an error.", inApp: true, email: false },
-  { id: "backup_completed", label: "Backup completes", description: "Nightly database backup finished.", inApp: true, email: true },
-  { id: "member_joined", label: "New team member joins", description: "An invite is accepted.", inApp: true, email: true },
-  { id: "storage_limit", label: "Storage limit reached", description: "A bucket crosses 90% of its size limit.", inApp: true, email: true },
-  { id: "rls_disabled", label: "RLS disabled on a table", description: "Row-level security is turned off.", inApp: true, email: false },
-  { id: "schedule_failed", label: "Scheduled trigger fails", description: "A cron or webhook-based workflow errors.", inApp: true, email: false },
-];
-
 export interface Notification {
   id: string;
   title: string;
@@ -190,7 +125,6 @@ export function timeAgo(iso: string): string {
  * shaped like plausible real trend data (not a straight line or pure
  * random noise) so the cards read as genuine at a glance.
  */
-export const connectionsSeries = [14, 16, 15, 18, 21, 19, 22, 24, 23, 20, 22, 25, 24, 24];
 export const queryLatencySeries = [22, 20, 19, 24, 30, 26, 18, 17, 19, 21, 18, 16, 18, 18];
 export const storageSeries = [38.1, 38.4, 38.9, 39.5, 40.1, 40.6, 41.0, 41.4, 41.9, 42.1, 42.3, 42.5, 42.7, 42.8];
 

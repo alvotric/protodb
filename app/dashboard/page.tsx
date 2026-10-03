@@ -9,7 +9,6 @@ import { TablesOverview } from "@/components/dashboard/tables-overview";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isDatabaseConfigured } from "@/lib/db/client";
 import { getDashboardStats } from "@/lib/dashboard/stats-service";
-import { connectionsSeries } from "@/lib/mock-data";
 
 /**
  * Phase 10 — Backend API & Real Data Integration (Part 1).
@@ -78,9 +77,9 @@ export default async function DashboardPage() {
           />
           <StatCard
             icon={Plug}
-            label="Active connections"
+            label="Current database connections"
             value={`${stats.activeConnections} / ${stats.maxConnections}`}
-            series={connectionsSeries}
+            sublabel="Current database snapshot; no history available"
           />
           <StatCard icon={HardDrive} label="Database size" value={formatBytes(stats.storageUsedBytes)} />
           <StatCard icon={Table2} label="Tables" value={String(stats.tableCount)} sublabel="in the public schema" />

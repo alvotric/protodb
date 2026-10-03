@@ -8,6 +8,27 @@ export interface DashboardStats {
   tableCount: number;
 }
 
+export type DatabaseConnectionSnapshot = {
+  activeConnections: number;
+  maxConnections: number;
+};
+
+export async function getDatabaseConnectionSnapshot(): Promise<DatabaseConnectionSnapshot> {
+  const [connRow, maxConnRow] = await Promise.all([
+    queryOne<{ count: string }>(`select count(*)::text as count from pg_stat_activity where datname = current_database()`),
+    queryOne<{ max_connections: string }>(`select setting as max_connections from pg_settings where name = 'max_connections'`),
+  ]);
+  if (!connRow || !maxConnRow || !/^\d+$/.test(connRow.count) || !/^\d+$/.test(maxConnRow.max_connections)) {
+    throw new Error("PostgreSQL did not return valid connection metrics.");
+  }
+  const activeConnections = Number(connRow.count);
+  const maxConnections = Number(maxConnRow.max_connections);
+  if (!Number.isSafeInteger(activeConnections) || !Number.isSafeInteger(maxConnections) || maxConnections < 1) {
+    throw new Error("PostgreSQL returned out-of-range connection metrics.");
+  }
+  return { activeConnections, maxConnections };
+}
+
 /**
  * Phase 10 — Backend API & Real Data Integration.
  * Real PostgreSQL system catalog queries -- see
@@ -23,13 +44,12 @@ export interface DashboardStats {
  * client-side refresh. One query implementation, not two.
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const [cacheRow, connRow, maxConnRow, sizeRow, tableRow] = await Promise.all([
+  const [cacheRow, connectionSnapshot, sizeRow, tableRow] = await Promise.all([
     queryOne<{ ratio: string | null }>(
       `select (sum(blks_hit)::float / greatest(sum(blks_hit) + sum(blks_read), 1) * 100)::text as ratio
        from pg_stat_database where datname = current_database()`
     ),
-    queryOne<{ count: string }>(`select count(*)::text as count from pg_stat_activity where datname = current_database()`),
-    queryOne<{ max_connections: string }>(`select setting as max_connections from pg_settings where name = 'max_connections'`),
+    getDatabaseConnectionSnapshot(),
     queryOne<{ size_bytes: string }>(`select pg_database_size(current_database())::text as size_bytes`),
     queryOne<{ count: string }>(
       `select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'`
@@ -38,8 +58,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   return {
     cacheHitRatioPct: cacheRow?.ratio ? Math.round(parseFloat(cacheRow.ratio) * 10) / 10 : 0,
-    activeConnections: connRow ? parseInt(connRow.count, 10) : 0,
-    maxConnections: maxConnRow ? parseInt(maxConnRow.max_connections, 10) : 0,
+    activeConnections: connectionSnapshot.activeConnections,
+    maxConnections: connectionSnapshot.maxConnections,
     storageUsedBytes: sizeRow ? parseInt(sizeRow.size_bytes, 10) : 0,
     tableCount: tableRow ? parseInt(tableRow.count, 10) : 0,
   };

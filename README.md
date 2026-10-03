@@ -142,16 +142,21 @@ Run `npm run test:phase8` for fixed-role capability and demo workflow
 tests. These cover local member/invitation safeguards, resource-scoped
 permission examples, and sample RLS metadata; they do not imply live
 Users APIs or target-database RLS introspection.
-- **`/audit`** — Phase 9's real deliverable (audit half): a
-  searchable/filterable audit trail (actor, action, resource, result)
-  and a System Health view (connection pool, error rate with
-  sparklines, slow query log).
-- **`/settings`** — Phase 9's real deliverable (settings half):
-  profile, notification preferences (event type × in-app/email), and
-  a danger zone. No external alerting integrations (Slack/PagerDuty)
-  — out of scope per the roadmap.
-- Routes listed above may combine live, demo, and UI-only pieces; each
-  page labels its data source and the behavior available in that mode.
+- **`/audit`** — reads persisted records from
+  `protodb_admin.audit_log` for Owner/Admin users, with database-backed
+  actor, action, resource, result, search, date-range, and pagination
+  filters. Existing audit writers are best-effort and do not cover
+  every system event. System Health shows a current
+  `pg_stat_activity`/`pg_settings` snapshot; historical connections,
+  slow-query history, and error-rate series are explicitly unavailable
+  because no persisted source exists.
+- **`/settings`** — saves the signed-in user's profile name and
+  per-account notification preferences in PostgreSQL. Preference
+  choices are persisted, but notification delivery is not implemented.
+  Workspace deletion is unavailable and performs no action. External
+  alerting integrations (Slack/PagerDuty) remain out of scope.
+- Pages may combine live, demo, and UI-only pieces; check each page's
+  visible source and availability labels before interpreting data.
 - **`/login`** — real authentication (Phase 10): a fresh database gets
   a one-time "create the first admin account" form; after that, a
   normal sign-in. Session cookies, hashed passwords (Node's built-in

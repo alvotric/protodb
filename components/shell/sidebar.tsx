@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logomark } from "@/components/shell/logomark";
-import { dbHealth } from "@/lib/mock-data";
 
 const primaryNav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -109,10 +108,10 @@ export function Sidebar() {
       <div className="border-t border-border p-3">
         <div className="flex items-center justify-between rounded-lg border border-border bg-surface px-3 py-2.5">
           <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-success" />
-            <span className="text-xs text-ink-muted">Connected</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-ink-faint" />
+            <span className="text-xs text-ink-muted">System status</span>
           </div>
-          <span className="font-mono text-xs text-ink-faint">{dbHealth.avgQueryMs}ms</span>
+          <Link href="/audit" className="text-xs text-ink-faint hover:text-ink">See Audit Log</Link>
         </div>
       </div>
     </aside>

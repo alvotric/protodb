@@ -6,14 +6,9 @@ import { DangerZoneSection } from "@/components/settings/danger-zone";
 import { getCurrentUser } from "@/lib/auth/session";
 
 /**
- * Phase 9 — Audit Logs & System Monitoring (Settings half), updated
- * in Phase 10: Profile is now the real signed-in user with a real
- * save (see profile-section.tsx). Notification preferences still
- * live in component state only -- wiring them to
- * `protodb_admin.notification_preferences` (already migrated) is
- * part of Phase 10's next continuation. No external alerting
- * integrations (Slack/PagerDuty) -- explicitly out of scope per the
- * roadmap.
+ * Phase 9 account settings. Profile and notification preferences are
+ * persisted for the authenticated user. Notification delivery and
+ * workspace deletion are not implemented.
  */
 export default async function SettingsPage() {
   const user = await getCurrentUser();

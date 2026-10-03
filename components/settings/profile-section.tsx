@@ -7,9 +7,10 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { SessionUser } from "@/lib/auth/session";
+import { PROFILE_NAME_MAX_LENGTH } from "@/lib/settings/profile-policy";
 
 /**
- * Phase 10 — Backend API & Real Data Integration.
+ * Phase 9 — persisted account profile settings.
  * `user` is the real signed-in session (lib/auth/session.ts), not
  * lib/mock-data.ts's static `currentUser`. Save is genuinely real
  * too -- PATCH /api/auth/profile updates `protodb_admin.users`
@@ -26,15 +27,23 @@ export function ProfileSection({ user }: { user: SessionUser }) {
   async function handleSave() {
     setSaving(true);
     setError(null);
+    setSaved(false);
     try {
       const res = await fetch("/api/auth/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      const data = await res.json();
-      if (!data.ok) {
-        setError(data.error ?? "Couldn't save changes.");
+      const data: unknown = await res.json();
+      if (!data || typeof data !== "object" || !("ok" in data) || (data as { ok?: unknown }).ok !== true) {
+        const responseError = data && typeof data === "object" && "error" in data
+          ? (data as { error?: unknown }).error
+          : null;
+        const message = responseError && typeof responseError === "object" && "message" in responseError &&
+          typeof (responseError as { message?: unknown }).message === "string"
+          ? (responseError as { message: string }).message
+          : typeof responseError === "string" ? responseError : "Couldn't save changes.";
+        setError(message);
         return;
       }
       setSaved(true);
@@ -58,7 +67,7 @@ export function ProfileSection({ user }: { user: SessionUser }) {
       <div className="grid grid-cols-1 gap-4 px-4 pb-4 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-xs font-medium text-ink-muted">Name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <Input value={name} maxLength={PROFILE_NAME_MAX_LENGTH} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-medium text-ink-muted">Email</label>
