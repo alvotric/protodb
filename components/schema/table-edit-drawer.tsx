@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, KeyRound } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+// Switch is not used in this component's current form
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { TableColumn } from "@/lib/mock-data";

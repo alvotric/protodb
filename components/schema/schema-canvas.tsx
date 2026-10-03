@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, type MouseEvent } from "react";
 import { Plus, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SchemaNode, nodeHeight } from "@/components/schema/schema-node";
+import { SchemaNode } from "@/components/schema/schema-node";
 import { computeEdges, SchemaEdges } from "@/components/schema/schema-edges";
 import { TableEditDrawer } from "@/components/schema/table-edit-drawer";
 import { RelationshipInspector } from "@/components/schema/relationship-inspector";
