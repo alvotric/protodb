@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/stat-card";
 import type { DashboardStats } from "@/lib/dashboard/stats-service";
 
+import { startSequentialPolling } from "@/lib/realtime/sequential-polling";
+
 const REFRESH_INTERVAL_MS = 15_000;
 
 function formatBytes(bytes: number | null): string {
@@ -22,41 +24,33 @@ export function DashboardLiveMetrics({ initialStats }: { initialStats: Dashboard
   const [lastUpdated, setLastUpdated] = useState<Date | null>(initialStats ? new Date() : null);
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let disposed = false;
-    const controller = new AbortController();
-
-    async function refresh() {
-      if (disposed) return;
-      setRefreshing(true);
-      try {
-        const response = await fetch("/api/dashboard/stats", { cache: "no-store", signal: controller.signal });
+    const controller = startSequentialPolling<DashboardStats>({
+      intervalMs: REFRESH_INTERVAL_MS,
+      onStart: () => setRefreshing(true),
+      load: async (signal) => {
+        const response = await fetch("/api/dashboard/stats", { cache: "no-store", signal });
         const body: unknown = await response.json().catch(() => null);
         if (!response.ok || !body || typeof body !== "object" || !("stats" in body)) {
           throw new Error("Dashboard metrics are temporarily unavailable.");
         }
         const next = (body as { stats?: unknown }).stats;
         if (!next || typeof next !== "object") throw new Error("Dashboard metrics are temporarily unavailable.");
-        if (!disposed) {
-          setStats(next as DashboardStats);
-          setStale(false);
-          setLastUpdated(new Date());
-        }
-      } catch {
-        if (!disposed && !controller.signal.aborted) setStale(true);
-      } finally {
-        if (!disposed) {
-          setRefreshing(false);
-          timer = setTimeout(() => void refresh(), REFRESH_INTERVAL_MS);
-        }
-      }
-    }
+        return next as DashboardStats;
+      },
+      onSuccess: (next) => {
+        setStats(next);
+        setStale(false);
+        setRefreshing(false);
+        setLastUpdated(new Date());
+      },
+      onError: () => {
+        setStale(true);
+        setRefreshing(false);
+      },
+    });
 
-    timer = setTimeout(() => void refresh(), REFRESH_INTERVAL_MS);
     return () => {
-      disposed = true;
-      controller.abort();
-      if (timer) clearTimeout(timer);
+      controller.stop();
     };
   }, []);
 

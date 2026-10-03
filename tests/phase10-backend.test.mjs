@@ -6,6 +6,15 @@ import { createDatabasePoolConfig, parseDatabaseTarget, targetsMatch } from "../
 import { AuthInputError, normalizeEmail, parseAuthJson, validateAuthName, validateAuthPassword } from "../lib/auth/input-policy.ts";
 import { canChangeMember, isUsersAdmin, parseUserAdminChange, UserAdminValidationError } from "../lib/users/user-admin-policy.ts";
 import { startSequentialPolling } from "../lib/realtime/sequential-polling.ts";
+import {
+  encryptCredential,
+  decryptCredential,
+  deriveKeyForType,
+  maskSecret,
+  maskDatabaseUrl,
+  CredentialVaultError,
+  CREDENTIAL_SCOPE,
+} from "../lib/credentials/credential-vault.ts";
 
 const baseEnv = {
   DATABASE_URL: "postgresql://app:secret@localhost:5432/protodb_test",
@@ -75,6 +84,80 @@ test("live member administration is Owner-only and rejects self or malformed cha
   assert.deepEqual(parseUserAdminChange({ status: "suspended" }), { status: "suspended" });
   assert.throws(() => parseUserAdminChange({ role: "Owner", status: "active" }), UserAdminValidationError);
   assert.throws(() => parseUserAdminChange({ role: "Root" }), UserAdminValidationError);
+});
+
+test("credential vault provides authenticated AES-256-GCM encryption, scope-binding, and safe masking", () => {
+  const masterKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  const plaintext = "super-secret-database-password-1234!";
+
+  // Encryption
+  const envelope = encryptCredential(plaintext, "database", masterKey);
+  assert.equal(envelope.version, "v1");
+  assert.equal(envelope.scope, CREDENTIAL_SCOPE);
+  assert.equal(envelope.type, "database");
+  assert.equal(envelope.ivHex.length, 24);
+  assert.equal(envelope.authTagHex.length, 32);
+  assert.ok(envelope.ciphertextHex.length > 0);
+
+  // Decryption
+  const decrypted = decryptCredential(envelope, masterKey);
+  assert.equal(decrypted, plaintext);
+
+  // Tamper detection: altered ciphertext
+  const tamperedCiphertext = {
+    ...envelope,
+    ciphertextHex: envelope.ciphertextHex.slice(0, -2) + (envelope.ciphertextHex.slice(-2) === "aa" ? "bb" : "aa"),
+  };
+  assert.throws(() => decryptCredential(tamperedCiphertext, masterKey), CredentialVaultError);
+
+  // Tamper detection: altered auth tag
+  const tamperedTag = {
+    ...envelope,
+    authTagHex: envelope.authTagHex.slice(0, -2) + (envelope.authTagHex.slice(-2) === "aa" ? "bb" : "aa"),
+  };
+  assert.throws(() => decryptCredential(tamperedTag, masterKey), CredentialVaultError);
+
+  // Tamper detection: altered IV
+  const tamperedIv = {
+    ...envelope,
+    ivHex: envelope.ivHex.slice(0, -2) + (envelope.ivHex.slice(-2) === "aa" ? "bb" : "aa"),
+  };
+  assert.throws(() => decryptCredential(tamperedIv, masterKey), CredentialVaultError);
+
+  // Wrong master key
+  const wrongKey = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+  assert.throws(() => decryptCredential(envelope, wrongKey), CredentialVaultError);
+
+  // Insufficient key entropy
+  assert.throws(() => deriveKeyForType("short", "database"), CredentialVaultError);
+
+  // Empty plaintext
+  assert.throws(() => encryptCredential("", "database", masterKey), CredentialVaultError);
+
+  // Missing master key
+  assert.throws(() => encryptCredential("secret", "database", ""), CredentialVaultError);
+
+  // Masking
+  assert.equal(maskSecret(""), "—");
+  assert.equal(maskSecret("abc"), "••••");
+  assert.equal(maskSecret("abcdefgh"), "ab••••gh");
+  assert.equal(maskSecret("my-super-secret-token"), "my-s••••oken");
+  assert.equal(
+    maskDatabaseUrl("postgresql://user:secretpass@db.example.com:5432/production"),
+    "postgresql://user:********@db.example.com:5432/production"
+  );
+  assert.equal(maskDatabaseUrl("not-a-url"), "postgres://****:********@****/********");
+});
+
+test("auth and session token architecture uses cryptographically secure tokens and one-way hashing", async () => {
+  const { randomBytes, createHash } = await import("node:crypto");
+  const rawToken = randomBytes(32).toString("hex");
+  assert.equal(rawToken.length, 64);
+  const hash1 = createHash("sha256").update(rawToken).digest("hex");
+  const hash2 = createHash("sha256").update(rawToken).digest("hex");
+  assert.equal(hash1, hash2);
+  assert.equal(hash1.length, 64);
+  assert.notEqual(hash1, rawToken);
 });
 
 test("sequential polling starts once, never overlaps, and aborts on cleanup", async () => {

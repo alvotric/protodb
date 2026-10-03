@@ -28,46 +28,6 @@ create table if not exists protodb_admin.users (
   last_active_at timestamptz
 );
 
-create or replace function protodb_admin.protect_final_active_owner()
-returns trigger
-language plpgsql
-security definer
-set search_path = pg_catalog, protodb_admin
-as $$
-begin
-  if tg_op = 'DELETE' then
-    if old.role = 'Owner' and old.status = 'active' then
-      perform pg_advisory_xact_lock(734091, 1);
-      if not exists (
-        select 1 from protodb_admin.users
-        where id <> old.id and role = 'Owner' and status = 'active'
-      ) then
-        raise exception 'At least one active Owner must remain.'
-          using errcode = '23514';
-      end if;
-    end if;
-    return old;
-  end if;
-  if old.role = 'Owner' and old.status = 'active' and
-     (new.role <> 'Owner' or new.status <> 'active') then
-    perform pg_advisory_xact_lock(734091, 1);
-    if not exists (
-      select 1 from protodb_admin.users
-      where id <> old.id and role = 'Owner' and status = 'active'
-    ) then
-      raise exception 'At least one active Owner must remain.'
-        using errcode = '23514';
-    end if;
-  end if;
-  return new;
-end;
-$$;
-
-drop trigger if exists protect_final_active_owner on protodb_admin.users;
-create trigger protect_final_active_owner
-before update of role, status or delete on protodb_admin.users
-for each row execute function protodb_admin.protect_final_active_owner();
-
 create table if not exists protodb_admin.sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references protodb_admin.users(id) on delete cascade,
@@ -90,9 +50,6 @@ create table if not exists protodb_admin.audit_log (
 );
 
 create index if not exists audit_log_at_idx on protodb_admin.audit_log(at desc);
-create index if not exists audit_log_actor_at_idx on protodb_admin.audit_log(actor, at desc);
-create index if not exists audit_log_action_at_idx on protodb_admin.audit_log(action, at desc);
-create index if not exists audit_log_result_at_idx on protodb_admin.audit_log(result, at desc);
 
 create table if not exists protodb_admin.saved_queries (
   id uuid primary key default gen_random_uuid(),
