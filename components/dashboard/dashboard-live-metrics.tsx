@@ -21,9 +21,10 @@ export function DashboardLiveMetrics({ initialStats }: { initialStats: Dashboard
   const [stats, setStats] = useState(initialStats);
   const [stale, setStale] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialStats ? new Date() : null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
+    if (initialStats) setLastUpdated(new Date());
     const controller = startSequentialPolling<DashboardStats>({
       intervalMs: REFRESH_INTERVAL_MS,
       onStart: () => setRefreshing(true),

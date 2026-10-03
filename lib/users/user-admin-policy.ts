@@ -1,4 +1,4 @@
-import { APP_ROLES, type AppRole } from "../auth/role-capabilities";
+import { APP_ROLES, type AppRole } from "../auth/role-capabilities.ts";
 
 export type UserAdminChange = { role?: AppRole; status?: "active" | "suspended" };
 
