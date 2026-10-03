@@ -2,49 +2,59 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseConfigured, query, queryOne } from "@/lib/db/client";
 import { verifyPassword } from "@/lib/auth/password";
 import { createSession } from "@/lib/auth/session";
+import { logAuditEvent } from "@/lib/audit/log";
+import { AuthInputError, normalizeEmail, parseAuthRequest, validateAuthPassword } from "@/lib/auth/input-policy";
 
 export async function POST(req: NextRequest) {
   if (!isDatabaseConfigured()) {
-    return NextResponse.json({ ok: false, error: "DATABASE_URL is not set." }, { status: 503 });
+    return NextResponse.json({ ok: false, error: "Sign-in is unavailable." }, { status: 503 });
   }
 
-  const body = await req.json().catch(() => null);
-  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-  const password = typeof body?.password === "string" ? body.password : "";
-  if (!email || !password) {
-    return NextResponse.json({ ok: false, error: "Email and password are required." }, { status: 400 });
+  let email: string;
+  let password: string;
+  try {
+    const body = await parseAuthRequest(req);
+    if (Object.keys(body).some((key) => !["email", "password"].includes(key))) {
+      throw new AuthInputError("Only email and password fields are accepted.");
+    }
+    email = normalizeEmail(body.email);
+    password = validateAuthPassword(body.password);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "Invalid request." },
+      { status: 400 }
+    );
   }
 
   const ip = req.headers.get("x-forwarded-for") ?? "—";
-  const user = await queryOne<{ id: string; password_hash: string; status: string }>(
-    `select id, password_hash, status from protodb_admin.users where email = $1`,
-    [email]
-  );
+  try {
+    const user = await queryOne<{ id: string; password_hash: string; status: string }>(
+      `select id, password_hash, status from protodb_admin.users where email = $1`,
+      [email]
+    );
+    const valid = user ? await verifyPassword(password, user.password_hash) : false;
 
-  const valid = user ? await verifyPassword(password, user.password_hash) : false;
+    if (!user || !valid) {
+      await logAuditEvent({ actor: email, action: "auth.login", resource: "session", result: "failed", ip });
+      return NextResponse.json({ ok: false, error: "Incorrect email or password." }, { status: 401 });
+    }
 
-  if (!user || !valid) {
-    await query(`insert into protodb_admin.audit_log (actor, action, resource, result, ip) values ($1, 'auth.login', 'session', 'failed', $2)`, [
-      email || "unknown",
-      ip,
-    ]);
-    return NextResponse.json({ ok: false, error: "Incorrect email or password." }, { status: 401 });
+    if (user.status === "suspended") {
+      await logAuditEvent({ actor: email, action: "auth.login", resource: "session", result: "failed", ip });
+      return NextResponse.json({ ok: false, error: "This account is unavailable." }, { status: 403 });
+    }
+
+    if (user.status === "invited") {
+      await query(`update protodb_admin.users set status = 'active' where id = $1`, [user.id]);
+    }
+    await createSession(user.id);
+    await logAuditEvent({ actor: email, action: "auth.login", resource: "session", result: "success", ip });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("Sign-in operation failed:", error);
+    return NextResponse.json(
+      { ok: false, error: "Sign-in could not be completed. Please try again." },
+      { status: 503 }
+    );
   }
-
-  if (user.status === "suspended") {
-    return NextResponse.json({ ok: false, error: "This account has been suspended." }, { status: 403 });
-  }
-
-  await createSession(user.id);
-  await query(`insert into protodb_admin.audit_log (actor, action, resource, result, ip) values ($1, 'auth.login', 'session', 'success', $2)`, [
-    email,
-    ip,
-  ]);
-
-  // An invited user's first successful login is what activates them.
-  if (user.status === "invited") {
-    await query(`update protodb_admin.users set status = 'active' where id = $1`, [user.id]);
-  }
-
-  return NextResponse.json({ ok: true });
 }

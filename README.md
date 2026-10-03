@@ -4,27 +4,35 @@ Standalone frontend for a private PostgreSQL admin platform. See
 **[ROADMAP.md](./ROADMAP.md)** for the full 11-phase plan — the
 authoritative scope reference from here on.
 
-Phase 10 replaces Phase 1–9 mock data with real PostgreSQL-backed
-features incrementally. The current implementation includes database
-connectivity, authentication, Dashboard stats, the Database Explorer/
-Table View, the Schema Designer, and the SQL Editor.
+Phase 10 integrates the existing Phase 1–9 pages with real backend
+services incrementally. The current implementation includes shared
+PostgreSQL pools, DB-backed authentication, live Dashboard metrics and
+activity, the Database Explorer/Table View, the Schema Designer, the
+SQL Editor, Storage, Audit, settings, and a live Users/RLS read path.
+Some explicitly labeled demo/reference paths remain; Phase 10 is not
+complete until the remaining architecture and runtime verification work
+is finished.
 
 ## Setup (new in Phase 10)
 
 ```bash
-cp .env.example .env.local   # then fill in DATABASE_URL
+cp .env.example .env.local   # fill in DATABASE_URL and same-target DDL settings
 psql "$DATABASE_URL" -f migrations/001_protodb_admin_schema.sql
 psql "$DATABASE_URL" -f migrations/002_sql_editor_history.sql
 psql "$DATABASE_URL" -f migrations/003_storage_metadata.sql
+psql "$DATABASE_URL" -f migrations/004_phase10_owner_invariant.sql
 npm install
 npm run dev
 ```
 
 Visit the app — since a fresh database has no users yet, you'll be
 walked through creating the first admin account (it becomes Owner).
-Without `DATABASE_URL` set, the app still runs: every Phase 1–9 route
-remains clearly labeled demo/reference data where authentication is
-not required.
+The first Owner bootstrap is serialized in PostgreSQL. A valid
+`DATABASE_URL` and applied auth migration are required for login and all
+authenticated pages; demo views are not an unauthenticated offline app.
+Use a separate, least-privilege `DATABASE_DDL_URL` only when live schema
+changes are intended. It must identify the same database as
+`DATABASE_URL`; DDL fails closed if the target cannot be verified.
 
 Then open http://localhost:3000 — it redirects to `/dashboard` (or
 `/login` first, if you're not signed in).
@@ -51,11 +59,13 @@ Then open http://localhost:3000 — it redirects to `/dashboard` (or
   The connected Live Database view uses real PostgreSQL data; the
   demo view uses the fixed mock row sets. The Schema Diagram remains
   a separate Phase 5 feature.
-- **`/dashboard`** — Phase 2's real deliverable, now backed by real
-  data (Phase 10): cache hit ratio, active connections, and database
-  size come directly from Postgres's own system catalogs. Quick
-  actions, recent activity, and the tables overview below are still
-  Phase 1–9 mock data pending their own turn.
+- **`/dashboard`** — current cache hit ratio, PostgreSQL connection
+  snapshot, database size, and public-schema table count come from
+  PostgreSQL. Metrics refresh through bounded 15-second polling; the
+  page shows stale/unavailable states and stores no historical samples.
+  Database size excludes S3 object Storage. Recent activity is drawn
+  from persisted audit rows for Owner/Admin only; the table list uses
+  real schema metadata and estimated row counts.
 - **`/components`** — Phase 1's deliverable. Every reusable component
   (buttons, badges, inputs, switch, tabs, cards, table, tooltip,
   modal, drawer, confirm dialog, command palette) shown with mock
@@ -130,18 +140,18 @@ tests. Its S3-compatible lifecycle test is skipped unless
 That test requires a pre-created, dedicated test bucket containing
 `test` in its name and a loopback MinIO endpoint; it refuses remote
 endpoints and deletes only the uniquely named test object it creates.
-- **`/users`** — Phase 8's authenticated demo interface: the roster,
-  invitations, member lifecycle actions, resource-scoped permission
-  examples, and RLS policy examples are local session state only.
-  Invites are not emailed, and these demo changes are not persisted or
-  enforced. A separate capability table documents the existing
-  server-side role checks. The RLS viewer shows clearly labeled sample
-  data and does not query PostgreSQL. Live roster, permission, invite,
-  and RLS catalog integration remains deferred to Phase 10.
+- **`/users`** — the Live users tab reads `protodb_admin.users` for
+  Owner accounts and supports server-authorized role changes and
+  suspend/reactivate. A database trigger and transaction lock preserve
+  at least one active Owner. The read-only RLS tab queries PostgreSQL
+  catalogs visible to the configured connection. Invitations and
+  resource-scoped permissions remain unavailable: there is no delivery
+  service or durable permission model. The Phase 8 demo/reference tab
+  remains explicitly labeled and is not authoritative or enforced.
 Run `npm run test:phase8` for fixed-role capability and demo workflow
 tests. These cover local member/invitation safeguards, resource-scoped
 permission examples, and sample RLS metadata; they do not imply live
-Users APIs or target-database RLS introspection.
+resource-scoped permission enforcement.
 - **`/audit`** — reads persisted records from
   `protodb_admin.audit_log` for Owner/Admin users, with database-backed
   actor, action, resource, result, search, date-range, and pagination
@@ -157,6 +167,13 @@ Users APIs or target-database RLS introspection.
   alerting integrations (Slack/PagerDuty) remain out of scope.
 - Pages may combine live, demo, and UI-only pieces; check each page's
   visible source and availability labels before interpreting data.
+- **Credentials and TLS** — database and Storage credentials remain
+  server environment configuration; the app does not persist or encrypt
+  target credentials and does not provide multi-workspace connections.
+  `DATABASE_SSL=true` verifies certificates by default; provide a trusted
+  PEM CA with `DATABASE_SSL_CA` when needed. The self-signed bypass is
+  explicitly development-only and rejected in production. Never place
+  credentials in `NEXT_PUBLIC_*` variables.
 - **`/login`** — real authentication (Phase 10): a fresh database gets
   a one-time "create the first admin account" form; after that, a
   normal sign-in. Session cookies, hashed passwords (Node's built-in

@@ -1,17 +1,33 @@
 import { queryOne } from "@/lib/db/client";
+import { query } from "@/lib/db/client";
 
 export interface DashboardStats {
-  cacheHitRatioPct: number;
+  cacheHitRatioPct: number | null;
   activeConnections: number;
   maxConnections: number;
-  storageUsedBytes: number;
-  tableCount: number;
+  databaseSizeBytes: number | null;
+  tableCount: number | null;
+}
+
+export interface DashboardActivity {
+  id: string;
+  actor: string;
+  action: string;
+  resource: string;
+  result: "success" | "failed";
+  at: string;
 }
 
 export type DatabaseConnectionSnapshot = {
   activeConnections: number;
   maxConnections: number;
 };
+
+function parseSafeNonNegativeInteger(value: string | undefined): number | null {
+  if (!value || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
 
 export async function getDatabaseConnectionSnapshot(): Promise<DatabaseConnectionSnapshot> {
   const [connRow, maxConnRow] = await Promise.all([
@@ -46,7 +62,10 @@ export async function getDatabaseConnectionSnapshot(): Promise<DatabaseConnectio
 export async function getDashboardStats(): Promise<DashboardStats> {
   const [cacheRow, connectionSnapshot, sizeRow, tableRow] = await Promise.all([
     queryOne<{ ratio: string | null }>(
-      `select (sum(blks_hit)::float / greatest(sum(blks_hit) + sum(blks_read), 1) * 100)::text as ratio
+      `select case
+                when sum(blks_hit) + sum(blks_read) = 0 then null
+                else (sum(blks_hit)::float / (sum(blks_hit) + sum(blks_read)) * 100)::text
+              end as ratio
        from pg_stat_database where datname = current_database()`
     ),
     getDatabaseConnectionSnapshot(),
@@ -56,11 +75,33 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     ),
   ]);
 
+  const ratio = cacheRow?.ratio === null || cacheRow?.ratio === undefined ? null : Number(cacheRow.ratio);
   return {
-    cacheHitRatioPct: cacheRow?.ratio ? Math.round(parseFloat(cacheRow.ratio) * 10) / 10 : 0,
+    cacheHitRatioPct: ratio !== null && Number.isFinite(ratio)
+      ? Math.round(ratio * 10) / 10
+      : null,
     activeConnections: connectionSnapshot.activeConnections,
     maxConnections: connectionSnapshot.maxConnections,
-    storageUsedBytes: sizeRow ? parseInt(sizeRow.size_bytes, 10) : 0,
-    tableCount: tableRow ? parseInt(tableRow.count, 10) : 0,
+    databaseSizeBytes: parseSafeNonNegativeInteger(sizeRow?.size_bytes),
+    tableCount: parseSafeNonNegativeInteger(tableRow?.count),
   };
+}
+
+export async function getRecentDashboardActivity(limit = 5): Promise<DashboardActivity[]> {
+  const boundedLimit = Math.min(Math.max(Math.floor(limit) || 5, 1), 10);
+  const rows = await query<{
+    id: string;
+    actor: string;
+    action: string;
+    resource: string;
+    result: DashboardActivity["result"];
+    at: Date | string;
+  }>(
+    `select id::text, actor, action, resource, result, at
+     from protodb_admin.audit_log
+     order by at desc, id desc
+     limit $1`,
+    [boundedLimit]
+  );
+  return rows.map((row) => ({ ...row, at: new Date(row.at).toISOString() }));
 }

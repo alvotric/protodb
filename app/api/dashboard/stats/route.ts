@@ -15,18 +15,18 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "not_configured" }, { status: 503 });
   }
 
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
-  }
-
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ ok: false, error: { code: "unauthenticated", message: "Not signed in." } }, { status: 401 });
+    }
     const stats = await getDashboardStats();
     return NextResponse.json({ ok: true, stats });
-  } catch (err) {
+  } catch (error) {
+    console.error("Failed to read Dashboard metrics:", error);
     return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to query the database." },
-      { status: 500 }
+      { ok: false, error: { code: "dashboard_unavailable", message: "Dashboard metrics are temporarily unavailable." } },
+      { status: 503 }
     );
   }
 }

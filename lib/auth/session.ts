@@ -49,10 +49,13 @@ export async function createSession(userId: string): Promise<string> {
 export async function destroySession(): Promise<void> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (token) {
-    await query(`delete from protodb_admin.sessions where token_hash = $1`, [hashToken(token)]);
+  try {
+    if (token) {
+      await query(`delete from protodb_admin.sessions where token_hash = $1`, [hashToken(token)]);
+    }
+  } finally {
+    cookieStore.delete(SESSION_COOKIE);
   }
-  cookieStore.delete(SESSION_COOKIE);
 }
 
 /** Server-side lookup of the currently signed-in user, for pages/layouts/route handlers. Returns null if there's no session, it's expired, or the account has been suspended. */

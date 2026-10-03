@@ -1,4 +1,5 @@
-import { Pool, type QueryResultRow } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { createDatabasePoolConfig } from "@/lib/db/connection-config";
 
 /**
  * Phase 10 — Backend API & Real Data Integration.
@@ -23,7 +24,7 @@ import { Pool, type QueryResultRow } from "pg";
  * with no code change (same shape as `isStripeConfigured()` would be
  * in a billing-focused app).
  */
-let pool: Pool | null = null;
+const globalForPostgres = globalThis as typeof globalThis & { __protoDbMainPool?: Pool };
 
 export function isDatabaseConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL);
@@ -35,21 +36,25 @@ export function getPool(): Pool {
       "DATABASE_URL is not set. Add it to enable real data -- see .env.example. Until then, every page falls back to its own honest 'not connected' state."
     );
   }
-  if (!pool) {
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+  if (!globalForPostgres.__protoDbMainPool) {
+    globalForPostgres.__protoDbMainPool = new Pool({
+      ...createDatabasePoolConfig(
+        "DATABASE_URL",
+        "DATABASE_SSL",
+        "DATABASE_SSL_CA",
+        "DATABASE_SSL_ALLOW_SELF_SIGNED"
+      ),
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 8_000,
     });
-    pool.on("error", (err) => {
+    globalForPostgres.__protoDbMainPool.on("error", (err) => {
       // A background/idle client failing shouldn't crash the process --
       // the next query on this pool will just open a fresh connection.
       console.error("Unexpected error on idle PostgreSQL client:", err);
     });
   }
-  return pool;
+  return globalForPostgres.__protoDbMainPool;
 }
 
 /** Thin convenience wrapper -- every route handler uses this rather than reaching for the pool directly, so error shape is consistent. */
@@ -68,4 +73,28 @@ export async function queryOne<T extends QueryResultRow = QueryResultRow>(
 ): Promise<T | null> {
   const rows = await query<T>(text, params);
   return rows[0] ?? null;
+}
+
+export async function withTransaction<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  let transactionStarted = false;
+  try {
+    await client.query("begin");
+    transactionStarted = true;
+    const result = await operation(client);
+    await client.query("commit");
+    transactionStarted = false;
+    return result;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await client.query("rollback");
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Database operation and rollback both failed.");
+      }
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }

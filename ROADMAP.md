@@ -113,34 +113,42 @@ phase listed below.
   page data; do not assume earlier phases left no persisted data.
 - **Non-goals:** none — this phase's job is specifically to remove every other phase's non-goals around "real data"
 
-**Progress so far (Part 1):**
-- Real PostgreSQL connection (`lib/db/client.ts`, `pg`), a migration for
-  this app's own `protodb_admin` schema (users/sessions/audit_log/
-  saved_queries/notification_preferences), living inside your own
-  database rather than needing a second connection string.
-- Real auth: password hashing (Node's built-in `scrypt`, no new
-  dependency), session cookies, a first-run setup flow, login/logout —
-  every page's signed-in user is now this real session, not the
-  static mock.
-- Real Dashboard stats (Phase 2): cache hit ratio, active connections,
-  database size, and table count, queried directly from Postgres's
-  own system catalogs.
-- **Still mock, pending in the same roadmap order:** Database Explorer
-  (Phase 3), Table View writes (Phase 4), Schema Designer DDL
-  execution (Phase 5), real SQL execution in the Query Editor (Phase
-  6), Storage's real object storage backing (Phase 7 — needs a real
-  bucket-storage layer, not just Postgres), and Users/Roles reading
-  from `protodb_admin.users` instead of demo state (Phase 8). The
-  Phase 9 repair uses existing infrastructure where it already
-  exists: it reads `protodb_admin.audit_log` and persists notification
-  preferences using the existing database connection, schema, and
-  authenticated session. These are narrow Phase 9 integrations, not
-  completion of Phase 10. Phase 10 remains the broader API and real
-  data integration for pages 2–9, delivered in roadmap order. Phase 9
-  still has no historical monitoring source, notification delivery,
-  or workspace deletion path. The Phase 8 interface remains
-  demo-only; Phase 10 must decide how live invitations and resource
-  permissions are stored/enforced and read actual RLS catalogs.
+**Progress (partial; Phase 10 is not complete):**
+- Shared lazy PostgreSQL pools exist for runtime queries and separately
+  authorized DDL. DDL now fails closed unless configured connection
+  strings and live PostgreSQL server/database identity agree. TLS
+  supports verified certificates by default; explicit self-signed
+  bypass is development-only.
+- Real DB-backed auth/session identity uses scrypt password hashes,
+  hashed session tokens, server-side role lookup, and a serialized
+  first-Owner bootstrap. Migration 004 installs the active-Owner
+  invariant for upgraded databases. Auth inputs and client-visible
+  errors are validated/sanitized.
+- Dashboard stats, recent activity (persisted audit rows for
+  Owner/Admin), and table overview use PostgreSQL sources. Current
+  metrics poll every 15 seconds and are snapshots, not historical
+  samples. Database size is not S3 object Storage usage.
+- Live Database/Table CRUD, Schema Designer DDL, SQL execution/history,
+  S3-compatible Storage metadata/provider paths, Phase 9 audit reads,
+  notifications, and profile persistence remain backed by their
+  existing services. They require configured credentials and applied
+  migrations; runtime state is environment-specific.
+- Users now has a live Owner-authorized roster, role/status operations,
+  final active-Owner protection and read-only RLS catalog inspection.
+  Invitations and resource-scoped permission persistence/enforcement
+  remain unavailable; Phase 8 examples remain separate demo/reference.
+- **Remaining Phase 10 work:** disposable PostgreSQL and Storage
+  integration tests, browser/runtime verification, durable invitations
+  only with an actual email-delivery design, resource permissions only
+  with a defined persisted authorization model, credential encryption
+  only after tenant/scope/key-management architecture is defined, and
+  reliable running-query freshness. Phase 9 monitoring history and
+  notification delivery still have no persisted source/worker.
+- DB and Storage credentials remain deployment environment values;
+  this single-target application does not claim credential-vault or
+  multi-workspace support. Authenticated features require a DB-backed
+  session, so demos are not accessible as an offline unauthenticated
+  application.
 
 ## Phase 11 — Production Readiness
 **Goal:** Ready to actually run somewhere other than a laptop.
@@ -167,5 +175,5 @@ phase listed below.
 | 7 — Storage Management | ✅ Done |
 | 8 — Users, Roles & Permissions | ✅ Done (demo-only interface; live integration remains in Phase 10) |
 | 9 — Audit Logs & System Monitoring | ✅ Done |
-| 10 — Backend API & Real Data Integration | 🚧 In progress (Part 1: DB + auth + Dashboard done) |
+| 10 — Backend API & Real Data Integration | 🚧 In progress (partial; integration and runtime verification remain) |
 | 11 — Production Readiness | Not started |

@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Activity, AlertTriangle, Clock, RefreshCw } from "lucide-react";
+import { Activity, AlertTriangle, Clock, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { startSequentialPolling, type SequentialPollingController } from "@/lib/realtime/sequential-polling";
+
+const REFRESH_INTERVAL_MS = 15_000;
 
 type HealthSnapshot = {
   source: "postgresql";
@@ -56,34 +59,46 @@ function apiError(value: unknown): string {
 export function SystemHealthPanel() {
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [refresh, setRefresh] = useState(0);
-
-  const load = useCallback(async (signal: AbortSignal) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/audit/health", { signal, cache: "no-store" });
-      const body: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(apiError(body));
-      if (!body || typeof body !== "object" || !("snapshot" in body) || !isHealthSnapshot((body as { snapshot?: unknown }).snapshot)) {
-        throw new Error("The health API returned an invalid response.");
-      }
-      setSnapshot((body as { snapshot: HealthSnapshot }).snapshot);
-    } catch (cause) {
-      if (cause instanceof DOMException && cause.name === "AbortError") return;
-      setError(cause instanceof Error ? cause.message : "Current database health metrics are unavailable.");
-      setSnapshot(null);
-    } finally {
-      if (!signal.aborted) setLoading(false);
-    }
-  }, []);
+  const polling = useRef<SequentialPollingController | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    return () => controller.abort();
-  }, [load, refresh]);
+    const controller = startSequentialPolling<HealthSnapshot>({
+      intervalMs: REFRESH_INTERVAL_MS,
+      onStart: () => setRefreshing(true),
+      load: async (signal) => {
+        const response = await fetch("/api/audit/health", { signal, cache: "no-store" });
+        const body: unknown = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(apiError(body));
+        if (!body || typeof body !== "object" || !("snapshot" in body) || !isHealthSnapshot((body as { snapshot?: unknown }).snapshot)) {
+          throw new Error("The health API returned an invalid response.");
+        }
+        return (body as { snapshot: HealthSnapshot }).snapshot;
+      },
+      onSuccess: (next) => {
+        setSnapshot(next);
+        setError(null);
+        setStale(false);
+        setLoading(false);
+        setRefreshing(false);
+      },
+      onError: (cause) => {
+        setError(cause instanceof Error ? cause.message : "Current database health metrics are unavailable.");
+        setStale(true);
+        setLoading(false);
+        setRefreshing(false);
+      },
+    });
+    polling.current = controller;
+    return () => {
+      controller.stop();
+      if (polling.current === controller) polling.current = null;
+    };
+  }, []);
+
+  const refreshSnapshot = () => polling.current?.refresh();
 
   if (loading) {
     return (
@@ -95,12 +110,12 @@ export function SystemHealthPanel() {
     );
   }
 
-  if (error || !snapshot) {
+  if (!snapshot) {
     return (
       <ErrorState
         title="System health unavailable"
         description={error ?? "Current database health metrics are unavailable."}
-        action={<Button variant="secondary" size="sm" onClick={() => setRefresh((value) => value + 1)}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button>}
+        action={<Button variant="secondary" size="sm" onClick={refreshSnapshot}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button>}
       />
     );
   }
@@ -112,10 +127,22 @@ export function SystemHealthPanel() {
           <h2 className="text-sm font-medium text-ink">PostgreSQL system snapshot</h2>
           <p className="mt-1 text-xs text-ink-muted">Current database activity and configured maximum; not this app process&apos;s pool occupancy.</p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => setRefresh((value) => value + 1)}>
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh snapshot
-        </Button>
+        <div className="flex items-center gap-3">
+          <span role="status" aria-live="polite" className="text-xs text-ink-faint">
+            {stale ? "Stale snapshot" : refreshing ? "Refreshing" : "Live snapshot"} · updates every 15 seconds
+          </span>
+          {refreshing && <Loader2 className="h-3 w-3 animate-spin text-ink-faint" />}
+          <Button variant="secondary" size="sm" onClick={refreshSnapshot}>
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh snapshot
+          </Button>
+        </div>
       </div>
+      {stale && error && (
+        <div role="alert" className="rounded-lg border border-warning/25 bg-warning-soft px-3 py-2 text-xs text-warning">
+          Refresh failed: {error}. Showing the last successful snapshot while retrying.
+        </div>
+      )}
+      <div className="text-xs text-ink-faint">Snapshot captured {new Date(snapshot.capturedAt).toLocaleString()}. No historical samples are stored.</div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card className="p-5">
@@ -125,7 +152,6 @@ export function SystemHealthPanel() {
             {snapshot.connections.active} <span className="text-sm text-ink-faint">/ {snapshot.connections.maximum}</span>
           </p>
           <p className="mt-1 text-xs text-ink-faint">Source: {snapshot.connections.source} · current snapshot</p>
-          <p className="mt-1 text-xs text-ink-faint">Captured {new Date(snapshot.capturedAt).toLocaleString()}</p>
         </Card>
 
         <UnavailableMetric
@@ -150,7 +176,7 @@ export function SystemHealthPanel() {
             <CardDescription>{snapshot.connectionHistory.message}</CardDescription>
           </div>
         </CardHeader>
-        <p className="mt-3 text-xs text-ink-faint">Source: no persisted samples. This snapshot is refreshed only when requested; it is not a historical series.</p>
+        <p className="mt-3 text-xs text-ink-faint">Source: no persisted samples. This panel refreshes a current snapshot; it is not a historical series.</p>
       </Card>
     </div>
   );
