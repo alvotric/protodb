@@ -9,6 +9,7 @@ import {
   readJsonBody,
 } from "@/lib/queries/query-policy";
 import { savedQueryListStatement } from "@/lib/queries/persistence-queries";
+import { logAuditEvent } from "@/lib/audit/log";
 
 interface SavedQueryRow {
   id: string;
@@ -55,10 +56,26 @@ export async function POST(req: NextRequest) {
        returning id, name, sql, created_at`,
       [user.id, payload.name, payload.sql]
     );
+    // Saved-query SQL text is per-user private content; audit only the
+    // mutation metadata (id), never the raw SQL, consistent with sql.execute.
+    await logAuditEvent({
+      actor: user.email,
+      action: "sql.saved_query.create",
+      resource: `Saved query ${rows[0]?.id ?? "unknown"}`,
+      result: "success",
+      ip: req.headers.get("x-forwarded-for") ?? "—",
+    });
     return NextResponse.json({ ok: true, saved: rows[0] }, { status: 201 });
   } catch (error) {
     if (!(error instanceof QueryRequestError)) console.error("Failed to save SQL Editor query:", error);
     const status = error instanceof QueryRequestError ? error.status : 500;
+    await logAuditEvent({
+      actor: user.email,
+      action: "sql.saved_query.create",
+      resource: "Saved query",
+      result: "failed",
+      ip: req.headers.get("x-forwarded-for") ?? "—",
+    });
     return NextResponse.json(
       { ok: false, error: error instanceof QueryRequestError ? error.message : "Could not save the query." },
       { status }

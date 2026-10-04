@@ -4,6 +4,7 @@ import { isDdlDatabaseConfigured } from "@/lib/db/ddl-client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
 import { renameColumn, alterColumnType, setColumnNullable, setColumnDefault, dropColumn } from "@/lib/database/ddl-service";
+import { safeDbMutationError } from "@/lib/database/db-error";
 import { logAuditEvent } from "@/lib/audit/log";
 import {
   parseColumnPatchPayload,
@@ -95,10 +96,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       result: "failed",
       ip,
     });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to update column." },
-      { status: 500 }
-    );
+    return safeDbMutationError(err, "Failed to update column.");
   }
 }
 
@@ -135,9 +133,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action: "schema.drop_column", resource: `${schema}.${table}.${column}`, result: "failed", ip });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to drop column." },
-      { status: 500 }
-    );
+    return safeDbMutationError(err, "Failed to drop column.");
   }
 }

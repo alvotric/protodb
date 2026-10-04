@@ -3,11 +3,13 @@ export const SQL_STATEMENT_TIMEOUT_MS = 10_000;
 export const MAX_RESULT_ROWS = 500;
 export const MAX_RESULT_BYTES = 1_000_000;
 export const QUERY_CONCURRENCY_LIMIT = 3;
+export const QUERY_PER_USER_LIMIT = 2;
 export const QUERY_HISTORY_LIMIT = 100;
 export const MAX_SAVED_QUERIES = 200;
 export const MAX_SAVED_QUERY_NAME_LENGTH = 120;
 
 let activeExecutions = 0;
+const activeExecutionsByUser = new Map<string, number>();
 
 export class QueryRequestError extends Error {
   readonly status: number;
@@ -58,13 +60,26 @@ export function parseSavedQueryId(value: string): string {
   return value;
 }
 
-export function acquireQuerySlot(): (() => void) | null {
+export function acquireQuerySlot(userId?: string): (() => void) | null {
+  // Process-local bound (single Node process). In multi-instance/serverless
+  // deployments each process enforces its own bound; this prevents one
+  // process from unbounded fan-out but is not a distributed semaphore.
+  // Per-user sub-limit prevents one account from consuming the whole process.
   if (activeExecutions >= QUERY_CONCURRENCY_LIMIT) return null;
+  if (userId) {
+    if ((activeExecutionsByUser.get(userId) ?? 0) >= QUERY_PER_USER_LIMIT) return null;
+  }
   activeExecutions += 1;
+  if (userId) activeExecutionsByUser.set(userId, (activeExecutionsByUser.get(userId) ?? 0) + 1);
   let released = false;
   return () => {
     if (!released) {
-      activeExecutions -= 1;
+      activeExecutions = Math.max(0, activeExecutions - 1);
+      if (userId) {
+        const next = (activeExecutionsByUser.get(userId) ?? 1) - 1;
+        if (next <= 0) activeExecutionsByUser.delete(userId);
+        else activeExecutionsByUser.set(userId, next);
+      }
       released = true;
     }
   };

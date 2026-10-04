@@ -38,19 +38,18 @@ function errorResponse(err: unknown, fallback: string) {
       ? err.code
       : "";
   const databaseConstraintError = postgresCode.startsWith("22") || postgresCode.startsWith("23");
-  return NextResponse.json(
-    {
-      ok: false,
-      error: validation
-        ? err.message
-        : databaseConstraintError
-          ? "PostgreSQL rejected the value because of a type or table constraint."
-          : err instanceof Error
-            ? err.message
-            : fallback,
-    },
-    { status: validation || databaseConstraintError ? 400 : 500 }
-  );
+  if (validation) {
+    return NextResponse.json({ ok: false, error: err.message }, { status: 400 });
+  }
+  if (databaseConstraintError) {
+    console.error(`${fallback} (constraint)`, err);
+    return NextResponse.json(
+      { ok: false, error: "PostgreSQL rejected the value because of a type or table constraint." },
+      { status: 400 }
+    );
+  }
+  console.error(fallback, err);
+  return NextResponse.json({ ok: false, error: fallback }, { status: 500 });
 }
 
 export async function GET(req: NextRequest, { params }: RouteParams) {

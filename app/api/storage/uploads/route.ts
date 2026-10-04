@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       contentType: body.contentType,
       sizeBytes: body.sizeBytes,
     }, user.id);
+    await logAuditEvent({ actor: user.email, action: "storage.upload.initiate", resource: `Storage upload ${result.uploadId}`, result: "success" });
     return NextResponse.json({ ok: true, ...result }, { status: 201 });
   } catch (error) {
     await logAuditEvent({ actor: user.email, action: "storage.upload.initiate", resource: "Storage object", result: "failed" });

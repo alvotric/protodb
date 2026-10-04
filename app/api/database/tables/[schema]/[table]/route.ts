@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
 import { getTableColumns, getExactRowCount, tableExists } from "@/lib/database/schema-service";
 import { dropTable } from "@/lib/database/ddl-service";
+import { safeDbMutationError, safeDbReadError } from "@/lib/database/db-error";
 import { logAuditEvent } from "@/lib/audit/log";
 
 function clientIp(req: NextRequest): string {
@@ -29,10 +30,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ schema:
 
     return NextResponse.json({ ok: true, columns, rowCount });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to load table detail." },
-      { status: 500 }
-    );
+    return safeDbReadError(err, "Failed to load table detail.");
   }
 }
 
@@ -55,9 +53,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action: "schema.drop_table", resource: `${schema}.${table}`, result: "failed", ip: clientIp(req) });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to drop table." },
-      { status: 500 }
-    );
+    return safeDbMutationError(err, "Failed to drop table.");
   }
 }

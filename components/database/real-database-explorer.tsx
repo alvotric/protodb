@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Table2, Rows3, HardDrive, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/ui/error-state";
@@ -21,11 +22,26 @@ import type { RealColumn } from "@/lib/database/schema-service";
  * switch tables.
  */
 export function RealDatabaseExplorer() {
-  const [selected, setSelected] = useState<{ schema: string; table: string } | null>(null);
+  const searchParams = useSearchParams();
+  const initialSchema = searchParams.get("schema");
+  const initialTable = searchParams.get("table");
+  const [selected, setSelected] = useState<{ schema: string; table: string } | null>(
+    initialSchema && initialTable ? { schema: initialSchema, table: initialTable } : null
+  );
   const [columns, setColumns] = useState<RealColumn[] | null>(null);
   const [rowCount, setRowCount] = useState<number | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialSchema && initialTable) {
+      setSelected((current) =>
+        current?.schema === initialSchema && current?.table === initialTable
+          ? current
+          : { schema: initialSchema, table: initialTable }
+      );
+    }
+  }, [initialSchema, initialTable]);
 
   useEffect(() => {
     if (!selected) return;
@@ -33,8 +49,9 @@ export function RealDatabaseExplorer() {
     setLoadingDetail(true);
     setDetailError(null);
     setColumns(null);
+    setRowCount(null);
 
-    fetch(`/api/database/tables/${selected.schema}/${selected.table}`)
+    fetch(`/api/database/tables/${encodeURIComponent(selected.schema)}/${encodeURIComponent(selected.table)}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -86,7 +103,7 @@ export function RealDatabaseExplorer() {
               <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-ink-muted">
                 <span className="flex items-center gap-1.5">
                   <Rows3 className="h-3.5 w-3.5 text-ink-faint" />
-                  {(rowCount ?? 0).toLocaleString()} rows
+                  {rowCount === null ? "—" : `${rowCount.toLocaleString()} rows`}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <HardDrive className="h-3.5 w-3.5 text-ink-faint" />

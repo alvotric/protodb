@@ -3,17 +3,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { EmptyState } from "@/components/ui/empty-state";
 import type { DashboardActivity } from "@/lib/dashboard/stats-service";
 import { cn } from "@/lib/utils";
-
-function timeAgo(value: string): string {
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return "Time unavailable";
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
+import { timeAgo } from "@/lib/time";
 
 export function ActivityFeed({
   events,

@@ -150,9 +150,18 @@ export function RealTableDataGrid({ schema, table, columns }: { schema: string; 
         setRows(null);
         return;
       }
+      const safeTotal = Number.isSafeInteger(data.totalCount) && data.totalCount >= 0 ? data.totalCount : 0;
+      const returnedPageCount = Math.max(1, Math.ceil(safeTotal / PAGE_SIZE));
+      // If the requested page is now out of range (e.g. rows were deleted),
+      // clamp and let the page effect refetch instead of flashing an empty
+      // "No rows match" state for a page that no longer exists.
+      if (requestedPage >= returnedPageCount) {
+        setTotalCount(safeTotal);
+        setPage(returnedPageCount - 1);
+        return;
+      }
       setRows(data.rows);
-      setTotalCount(data.totalCount);
-      const returnedPageCount = Math.max(1, Math.ceil(data.totalCount / PAGE_SIZE));
+      setTotalCount(safeTotal);
       setPage((current) => Math.min(current, returnedPageCount - 1));
     } catch {
       setError("Couldn't reach the server.");

@@ -48,9 +48,19 @@ function toMockColumn(col: RealColumn): TableColumn {
 }
 
 function readSavedPositions(): Record<string, { x: number; y: number }> {
-  const stored = window.localStorage.getItem(POSITION_STORAGE_KEY);
+  let stored: string | null = null;
+  try {
+    stored = window.localStorage.getItem(POSITION_STORAGE_KEY);
+  } catch {
+    return {};
+  }
   if (!stored) return {};
-  const parsed: unknown = JSON.parse(stored);
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return {};
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
   const positions: Record<string, { x: number; y: number }> = {};
   for (const [key, value] of Object.entries(parsed)) {
@@ -70,7 +80,13 @@ function initialPositions(
   columns: Record<string, TableColumn[]>,
   saved: Record<string, { x: number; y: number }>
 ): Record<string, { x: number; y: number }> {
-  const result = { ...saved };
+  // Prune positions for tables that no longer exist so the stored map
+  // cannot grow without bound across schema changes.
+  const liveKeys = new Set(tables.map((table) => table.key));
+  const result: Record<string, { x: number; y: number }> = {};
+  for (const [key, pos] of Object.entries(saved)) {
+    if (liveKeys.has(key)) result[key] = pos;
+  }
   const rowHeights: number[] = [];
   tables.forEach((table, index) => {
     const row = Math.floor(index / GRID_COLS);
@@ -228,12 +244,17 @@ export function RealSchemaCanvas() {
 
   useEffect(() => {
     if (!positionsReady) return;
-    try {
-      window.localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(positions));
-      setStorageError(null);
-    } catch {
-      setStorageError("Node positions could not be saved in this browser.");
-    }
+    // Debounce browser persistence so drag mousemove ticks do not write
+    // localStorage on every frame. The timeout is cleared on unmount/change.
+    const timer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(positions));
+        setStorageError(null);
+      } catch {
+        setStorageError("Node positions could not be saved in this browser.");
+      }
+    }, 400);
+    return () => clearTimeout(timer);
   }, [positions, positionsReady]);
 
   const edges = useMemo(

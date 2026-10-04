@@ -63,6 +63,9 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) return null;
+  // Token-format precheck avoids a DB round-trip for obviously invalid
+  // cookies. Real tokens are 64 lowercase hex chars (32 random bytes).
+  if (!/^[0-9a-f]{64}$/i.test(token)) return null;
 
   const row = await queryOne<{
     id: string;
@@ -83,6 +86,9 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   // Best-effort activity ping -- if this write fails, the session
   // itself is still valid, so failure here shouldn't block the request.
   query(`update protodb_admin.users set last_active_at = now() where id = $1`, [row.id]).catch(() => {});
+  // Opportunistic expired-session reaping (no cron/worker in Phase 10).
+  // Best-effort and unawaited; failures are ignored.
+  query(`delete from protodb_admin.sessions where expires_at <= now() - interval '1 day'`).catch(() => {});
 
   return row;
 }

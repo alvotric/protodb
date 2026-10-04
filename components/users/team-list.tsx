@@ -5,7 +5,7 @@ import { MoreHorizontal, UserX, UserCheck, Trash2, ShieldCheck, Users } from "lu
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { timeAgo } from "@/lib/mock-data";
+import { timeAgo } from "@/lib/time";
 import { APP_ROLES, type AppRole } from "@/lib/auth/role-capabilities";
 import type { DemoInvitation, DemoTeamMember } from "@/lib/users/phase8-demo";
 

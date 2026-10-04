@@ -28,6 +28,11 @@ export interface RealTableSummary {
   isPartitioned: boolean;
 }
 
+function parseCatalogCount(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
 export interface RealColumn {
   name: string;
   type: string;
@@ -71,8 +76,8 @@ export async function listSchemaTables(options: { includePartitioned?: boolean }
   return rows.map((r) => ({
     schema: r.schema,
     name: r.table_name,
-    approxRowCount: parseInt(r.approx_row_count, 10),
-    sizeBytes: parseInt(r.size_bytes, 10),
+    approxRowCount: parseCatalogCount(r.approx_row_count),
+    sizeBytes: parseCatalogCount(r.size_bytes),
     isPartitioned: r.is_partitioned,
   }));
 }
@@ -81,7 +86,7 @@ export async function listSchemaTables(options: { includePartitioned?: boolean }
 export async function getExactRowCount(schema: string, table: string): Promise<number> {
   const qualified = quoteQualifiedTable(schema, table);
   const row = await queryOne<{ count: string }>(`select count(*)::text as count from ${qualified}`);
-  return row ? parseInt(row.count, 10) : 0;
+  return row ? parseCatalogCount(row.count) : 0;
 }
 
 export async function getTableColumns(schema: string, table: string): Promise<RealColumn[]> {

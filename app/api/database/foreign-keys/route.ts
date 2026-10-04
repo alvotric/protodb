@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
 import { createForeignKey, dropForeignKey, replaceForeignKey } from "@/lib/database/ddl-service";
 import { listForeignKeys } from "@/lib/database/schema-service";
+import { safeDbMutationError, safeDbReadError } from "@/lib/database/db-error";
 import {
   parseDropForeignKeyPayload,
   parseForeignKeyPayload,
@@ -21,10 +22,7 @@ export async function GET() {
     const foreignKeys = await listForeignKeys();
     return NextResponse.json({ ok: true, foreignKeys });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to list foreign keys." },
-      { status: 500 }
-    );
+    return safeDbReadError(err, "Failed to list foreign keys.");
   }
 }
 
@@ -57,10 +55,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action: "schema.create_foreign_key", resource, result: "failed", ip });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to create the foreign key." },
-      { status: 400 }
-    );
+    return safeDbMutationError(err, "Failed to create the foreign key.");
   }
 }
 
@@ -93,10 +88,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action: "schema.edit_foreign_key", resource, result: "failed", ip });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to update the foreign key." },
-      { status: 400 }
-    );
+    return safeDbMutationError(err, "Failed to update the foreign key.");
   }
 }
 
@@ -129,9 +121,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action: "schema.drop_foreign_key", resource, result: "failed", ip });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to remove the foreign key." },
-      { status: 400 }
-    );
+    return safeDbMutationError(err, "Failed to remove the foreign key.");
   }
 }

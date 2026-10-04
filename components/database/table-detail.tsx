@@ -7,7 +7,8 @@ import { Tabs } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TableStructure } from "@/components/database/table-structure";
 import { TableDataGrid } from "@/components/database/table-data-grid";
-import { tableColumns, tableRows, timeAgo, type TableInfo } from "@/lib/mock-data";
+import { tableColumns, tableRows, type TableInfo } from "@/lib/mock-data";
+import { timeAgo } from "@/lib/time";
 
 /**
  * Phase 4 — Table View & Data Management.

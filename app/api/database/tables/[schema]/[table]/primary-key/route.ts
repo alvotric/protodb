@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
 import { setSingleColumnPrimaryKey } from "@/lib/database/ddl-service";
 import { parsePrimaryKeyPayload, SchemaValidationError, validateSchemaIdentifier } from "@/lib/database/schema-validation";
+import { safeDbMutationError } from "@/lib/database/db-error";
 import { logAuditEvent } from "@/lib/audit/log";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ schema: string; table: string }> }) {
@@ -41,9 +42,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sch
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action, resource: `${schema}.${table}.${payload.column}`, result: "failed", ip });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to update the primary key." },
-      { status: 400 }
-    );
+    return safeDbMutationError(err, "Failed to update the primary key.");
   }
 }

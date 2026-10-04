@@ -12,6 +12,7 @@ const REFRESH_INTERVAL_MS = 15_000;
 
 function formatBytes(bytes: number | null): string {
   if (bytes === null) return "Unavailable";
+  if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
@@ -23,8 +24,17 @@ export function DashboardLiveMetrics({ initialStats }: { initialStats: Dashboard
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  // Keep the first paint in sync if the server revalidates with new stats;
+  // live polling still overwrites afterwards. Only adopt server stats when
+  // we have no successful poll yet (lastUpdated === null) to avoid clobbering
+  // fresher polled data.
   useEffect(() => {
-    if (initialStats) setLastUpdated(new Date());
+    if (lastUpdated === null && initialStats) setStats(initialStats);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialStats]);
+
+  useEffect(() => {
+   
     const controller = startSequentialPolling<DashboardStats>({
       intervalMs: REFRESH_INTERVAL_MS,
       onStart: () => setRefreshing(true),

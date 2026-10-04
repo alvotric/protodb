@@ -23,7 +23,7 @@ import { FilePreviewDrawer } from "@/components/storage/file-preview-drawer";
 import { detectKind, formatBytes, type StorageFile } from "@/components/storage/storage-types";
 import type { StorageBucket } from "@/lib/storage/types";
 import type { StorageMode } from "@/components/storage/storage-workspace";
-import { timeAgo } from "@/lib/mock-data";
+import { timeAgo } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 interface UploadTicket {

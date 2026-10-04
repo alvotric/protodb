@@ -4,6 +4,11 @@ import {
   randomBytes,
   hkdfSync,
 } from "node:crypto";
+// NOTE: server-only by convention (same as other lib/* server modules).
+// The `server-only` package is not a dependency in this repo, so no
+// `import "server-only"` barrier is added here; never import this module
+// from client components. Decryption occurs strictly server-side
+// immediately before connection establishment.
 
 /**
  * Phase 10 — Credential Architecture & Authenticated Encryption.

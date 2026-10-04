@@ -69,6 +69,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof Error && error.message === "user_not_found") {
+      await logAuditEvent({
+        actor: actor.email,
+        action: change.role ? "users.role.update" : "users.status.update",
+        resource: `user:${id}`,
+        result: "failed",
+        ip: request.headers.get("x-forwarded-for") ?? "—",
+      });
       return NextResponse.json({ ok: false, error: { code: "user_not_found", message: "User was not found." } }, { status: 404 });
     }
     if (error instanceof Error && error.message === "final_owner_invariant") {
@@ -85,6 +92,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       );
     }
     if (error instanceof Error && error.message === "self_change_denied") {
+      await logAuditEvent({
+        actor: actor.email,
+        action: change.role ? "users.role.update" : "users.status.update",
+        resource: `user:${id}`,
+        result: "failed",
+        ip: request.headers.get("x-forwarded-for") ?? "—",
+      });
       return NextResponse.json({ ok: false, error: { code: "self_change_denied", message: "You cannot change your own account here." } }, { status: 400 });
     }
     console.error("Failed to update a user account:", error);

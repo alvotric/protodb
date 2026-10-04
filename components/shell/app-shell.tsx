@@ -15,12 +15,46 @@ import {
 import { Sidebar } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { CommandPalette, type CommandItem } from "@/components/ui/command-palette";
-import { tables } from "@/lib/mock-data";
 import type { SessionUser } from "@/lib/auth/session";
 
 export function AppShell({ title, user, children }: { title: string; user: SessionUser; children: ReactNode }) {
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [liveTables, setLiveTables] = useState<Array<{ schema: string; name: string }>>([]);
+
+  useEffect(() => {
+    if (!paletteOpen || liveTables.length > 0) return;
+
+    const controller = new AbortController();
+
+    fetch("/api/database/schema?includePartitioned=true", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const body: unknown = await response.json().catch(() => null);
+        if (!response.ok || !body || typeof body !== "object" || !("tables" in body) || !Array.isArray((body as { tables?: unknown }).tables)) {
+          return;
+        }
+
+        const tables = (body as { tables: unknown[] }).tables.filter(
+          (table): table is { schema: string; name: string } =>
+            !!table &&
+            typeof table === "object" &&
+            typeof (table as { schema?: unknown }).schema === "string" &&
+            typeof (table as { name?: unknown }).name === "string"
+        );
+
+        setLiveTables(tables);
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setLiveTables([]);
+        }
+      });
+
+    return () => controller.abort();
+  }, [liveTables.length, paletteOpen]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -43,13 +77,16 @@ export function AppShell({ title, user, children }: { title: string; user: Sessi
     { id: "nav-settings", label: "Settings", group: "Navigate", icon: <Settings className="h-4 w-4" />, onSelect: () => router.push("/settings") },
   ];
 
-  const tableItems: CommandItem[] = tables.map((t) => ({
-    id: `table-${t.name}`,
-    label: t.name,
-    hint: t.schema,
+  const tableItems: CommandItem[] = liveTables.map((table) => ({
+    id: `table-${table.schema}-${table.name}`,
+    label: table.name,
+    hint: table.schema,
     group: "Tables",
     icon: <Table2 className="h-4 w-4" />,
-    onSelect: () => router.push("/database"),
+    onSelect: () =>
+      router.push(
+        `/database?schema=${encodeURIComponent(table.schema)}&table=${encodeURIComponent(table.name)}`
+      ),
   }));
 
   return (

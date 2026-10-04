@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
 import { addColumn } from "@/lib/database/ddl-service";
 import { parseAddColumnPayload, SchemaValidationError, validateSchemaIdentifier } from "@/lib/database/schema-validation";
+import { safeDbMutationError } from "@/lib/database/db-error";
 import { logAuditEvent } from "@/lib/audit/log";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ schema: string; table: string }> }) {
@@ -40,9 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sch
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action: "schema.add_column", resource: `${schema}.${table}.${column.name}`, result: "failed", ip });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to add column." },
-      { status: 500 }
-    );
+    return safeDbMutationError(err, "Failed to add column.");
   }
 }

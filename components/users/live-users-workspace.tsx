@@ -57,7 +57,12 @@ export function LiveUsersWorkspace({ currentUserId }: { currentUserId: string })
   const [retry, setRetry] = useState(0);
 
   const load = useCallback(async (signal: AbortSignal) => {
-    setLoading(true);
+    // Avoid flashing the whole roster skeleton on background refresh:
+    // only show the skeleton on first load, otherwise keep existing rows.
+    setUsers((current) => {
+      if (current.length === 0) setLoading(true);
+      return current;
+    });
     setError(null);
     try {
       const [usersResponse, rlsResponse] = await Promise.all([
@@ -104,6 +109,14 @@ export function LiveUsersWorkspace({ currentUserId }: { currentUserId: string })
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(apiError(payload, "The account could not be updated."));
       setNotice(`${user.name}'s account was updated.`);
+      // Clear a satisfied role draft so the Save button disappears.
+      if (change.role !== undefined) {
+        setRoleDrafts((previous) => {
+          const next = { ...previous };
+          delete next[user.id];
+          return next;
+        });
+      }
       setRetry((value) => value + 1);
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : "The account could not be updated.");
@@ -144,6 +157,8 @@ export function LiveUsersWorkspace({ currentUserId }: { currentUserId: string })
               const activeOwners = users.filter((candidate) => candidate.role === "Owner" && candidate.status === "active").length;
               const isFinalActiveOwner = user.role === "Owner" && user.status === "active" && activeOwners <= 1;
               const roleDraft = roleDrafts[user.id] ?? user.role;
+              const isDemotingFinalOwner = isFinalActiveOwner && roleDraft !== "Owner";
+              const isSuspendingFinalOwner = isFinalActiveOwner && user.status === "active";
               return (
                 <div key={user.id} className="flex flex-wrap items-center gap-3 py-3">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-medium text-accent" aria-hidden="true">
@@ -165,13 +180,20 @@ export function LiveUsersWorkspace({ currentUserId }: { currentUserId: string })
                     {APP_ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
                   </select>
                   {roleDraft !== user.role && (
-                    <Button size="sm" disabled={busyId !== null} onClick={() => void updateUser(user, { role: roleDraft })}>Save role</Button>
+                    <Button
+                      size="sm"
+                      disabled={busyId !== null || isDemotingFinalOwner}
+                      title={isDemotingFinalOwner ? "At least one active Owner must remain. The server also enforces this." : undefined}
+                      onClick={() => void updateUser(user, { role: roleDraft })}
+                    >
+                      Save role
+                    </Button>
                   )}
                   {!isSelf && (
                     <Button
                       variant="secondary"
                       size="sm"
-                      disabled={busyId !== null || (isFinalActiveOwner && user.status === "active")}
+                      disabled={busyId !== null || isSuspendingFinalOwner}
                       title={isFinalActiveOwner ? "At least one active Owner must remain." : undefined}
                       onClick={() => void updateUser(user, { status: user.status === "suspended" ? "active" : "suspended" })}
                     >

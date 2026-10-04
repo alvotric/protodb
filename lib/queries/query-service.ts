@@ -90,7 +90,9 @@ export async function executeSql(sql: string): Promise<QueryOutcome> {
       const batch = await readCursor(cursor, Math.min(FETCH_BATCH_SIZE, remaining));
       command = batch.command || command;
       resultRowCount = batch.rowCount ?? resultRowCount;
-      if (columns.length === 0) {
+      // Derive column names from cursor field metadata even when the result
+      // has zero rows, so empty SELECTs still render headers.
+      if (columns.length === 0 && batch.fields.length > 0) {
         columns.push(...displayColumnNames(batch.fields));
       }
       if (batch.rows.length < Math.min(FETCH_BATCH_SIZE, remaining)) cursorFinished = true;

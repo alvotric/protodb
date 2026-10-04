@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listSchemas } from "@/lib/database/schema-service";
+import { safeDbReadError } from "@/lib/database/db-error";
 
 export async function GET() {
   if (!isDatabaseConfigured()) {
@@ -15,9 +16,6 @@ export async function GET() {
     const schemas = await listSchemas();
     return NextResponse.json({ ok: true, schemas });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to list schemas." },
-      { status: 500 }
-    );
+    return safeDbReadError(err, "Failed to list schemas.");
   }
 }

@@ -7,6 +7,7 @@ import {
   MAX_SQL_BYTES,
   QUERY_HISTORY_LIMIT,
   QUERY_CONCURRENCY_LIMIT,
+  QUERY_PER_USER_LIMIT,
   QueryRequestError,
   acquireQuerySlot,
   readJsonBody,
@@ -86,10 +87,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const releaseSlot = acquireQuerySlot();
+  const releaseSlot = acquireQuerySlot(user.id);
   if (!releaseSlot) {
     return NextResponse.json(
-      { ok: false, error: `At most ${QUERY_CONCURRENCY_LIMIT} SQL statements may execute concurrently.` },
+      { ok: false, error: `SQL execution is busy. At most ${QUERY_CONCURRENCY_LIMIT} statements run concurrently per server process (${QUERY_PER_USER_LIMIT} per account). Please wait and retry.` },
       { status: 429 }
     );
   }

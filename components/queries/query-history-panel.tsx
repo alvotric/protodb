@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CheckCircle2, XCircle, Loader2, Bookmark, Trash2 } from "lucide-react";
 import { Tabs } from "@/components/ui/tabs";
-import { timeAgo } from "@/lib/mock-data";
+import { timeAgo } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { QueryHistoryRecord } from "@/lib/queries/types";
 

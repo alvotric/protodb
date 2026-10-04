@@ -245,8 +245,13 @@ export async function getTableRows(
   return {
     columns: columns.map((column) => column.name),
     rows,
-    totalCount: countRow ? parseInt(countRow.count, 10) : 0,
+    totalCount: countRow ? parseSafeRowCount(countRow.count) : 0,
   };
+}
+
+function parseSafeRowCount(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 export async function updateTableRow(

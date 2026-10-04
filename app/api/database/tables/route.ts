@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canManageSchema, schemaMutationDeniedResponse } from "@/lib/auth/authorization";
 import { createTable } from "@/lib/database/ddl-service";
 import { parseCreateTablePayload, SchemaValidationError } from "@/lib/database/schema-validation";
+import { safeDbMutationError } from "@/lib/database/db-error";
 import { logAuditEvent } from "@/lib/audit/log";
 
 function clientIp(req: NextRequest): string {
@@ -38,9 +39,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     await logAuditEvent({ actor: user.email, action: "schema.create_table", resource: `${payload.schema}.${payload.table}`, result: "failed", ip: clientIp(req) });
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Failed to create table." },
-      { status: 500 }
-    );
+    return safeDbMutationError(err, "Failed to create table.");
   }
 }

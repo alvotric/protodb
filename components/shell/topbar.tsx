@@ -6,21 +6,16 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Search, Bell, ChevronDown, LogOut, Settings, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { notifications as initialNotifications, timeAgo } from "@/lib/mock-data";
+import { canReadAudit } from "@/lib/audit/audit-query";
+import { timeAgo } from "@/lib/time";
 import type { SessionUser } from "@/lib/auth/session";
 
 /**
- * Phase 10 — Backend API & Real Data Integration.
- * `user` now comes from the real signed-in session (see
- * lib/auth/session.ts#getCurrentUser, called by every page.tsx and
- * passed down through AppShell) rather than the static
- * lib/mock-data.ts#currentUser every earlier phase used. Sign out is
- * real too: it calls the logout route, which deletes the session row
- * and clears the cookie, then sends you back to /login.
+ * Live application shell.
  *
- * Notifications remain lib/mock-data.ts's seed list -- Phase 10's
- * later continuation is what wires real event-driven notifications
- * up to the same `protodb_admin` schema this auth work introduced.
+ * User identity comes from the authenticated server session. The dropdown
+ * activity feed is populated from persisted audit events for users allowed
+ * to read audit history; it never falls back to fixture data.
  */
 export function Topbar({
   title,
@@ -34,18 +29,55 @@ export function Topbar({
   const router = useRouter();
   const [notifOpen, setNotifOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
-  const [notifications, setNotifications] = useState(initialNotifications);
+  type LiveActivity = {
+    id: string;
+    actor: string;
+    action: string;
+    resource: string;
+    result: "success" | "failed";
+    at: string;
+  };
+
+  const [notifications, setNotifications] = useState<LiveActivity[]>([]);
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
   const initials = user.name
     .split(" ")
     .map((p) => p[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  useEffect(() => {
+    if (!canReadAudit(user.role) || !notifOpen || notificationsLoaded) return;
+    const controller = new AbortController();
+    setNotificationLoading(true);
+    setNotificationError(null);
+
+    fetch("/api/audit?page=0&pageSize=8", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body: unknown = await response.json().catch(() => null);
+        if (!response.ok || !body || typeof body !== "object" || !("events" in body) || !Array.isArray((body as { events?: unknown }).events)) {
+          throw new Error("Recent activity is temporarily unavailable.");
+        }
+        setNotifications((body as { events: LiveActivity[] }).events);
+        setNotificationsLoaded(true);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setNotificationError(error instanceof Error ? error.message : "Recent activity is temporarily unavailable.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setNotificationLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [notifOpen, notificationsLoaded, user.role]);
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -80,13 +112,11 @@ export function Topbar({
         <div className="relative" ref={notifRef}>
           <button
             onClick={() => setNotifOpen((v) => !v)}
-            aria-label="Notifications"
+            aria-label="Recent activity"
             className="relative flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
           >
             <Bell className="h-4 w-4" />
-            {unreadCount > 0 && (
-              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-accent" />
-            )}
+
           </button>
 
           <AnimatePresence>
@@ -99,38 +129,59 @@ export function Topbar({
                 className="glass absolute right-0 top-11 z-40 w-80 rounded-xl border border-border-strong bg-surface-raised p-1.5 shadow-raised"
               >
                 <div className="flex items-center justify-between px-2.5 py-2">
-                  <p className="text-sm font-medium text-ink">Notifications</p>
-                  {unreadCount > 0 && (
-                    <button
-                      onClick={() => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))}
-                      className="text-xs text-accent hover:underline"
-                    >
-                      Mark all read
-                    </button>
-                  )}
+                  <div>
+                    <p className="text-sm font-medium text-ink">Recent activity</p>
+                    <p className="text-[11px] text-ink-faint">Persisted audit events</p>
+                  </div>
+
                 </div>
                 <div className="max-h-72 overflow-y-auto">
-                  {notifications.map((n) => (
-                    <div
-                      key={n.id}
-                      className={cn(
-                        "flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-surface-hover",
-                        !n.read && "bg-accent-soft"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                          n.read ? "bg-transparent" : "bg-accent"
-                        )}
-                      />
-                      <div className="min-w-0">
-                        <p className="text-sm text-ink">{n.title}</p>
-                        <p className="mt-0.5 text-xs text-ink-muted">{n.description}</p>
-                        <p className="mt-1 text-[11px] text-ink-faint">{timeAgo(n.at)}</p>
-                      </div>
+                  {!canReadAudit(user.role) ? (
+                    <p className="px-2.5 py-6 text-center text-xs text-ink-faint">
+                      Live activity is available to Owner and Admin accounts.
+                    </p>
+                  ) : notificationLoading ? (
+                    <div className="px-2.5 py-6 text-center text-xs text-ink-faint">
+                      Loading recent activity…
                     </div>
-                  ))}
+                  ) : notificationError ? (
+                    <div className="px-2.5 py-6 text-center">
+                      <p className="text-xs text-danger">{notificationError}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNotificationsLoaded(false);
+                          setNotificationError(null);
+                        }}
+                        className="mt-2 text-xs text-accent hover:underline"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : notifications.length === 0 ? (
+                    <p className="px-2.5 py-6 text-center text-xs text-ink-faint">
+                      No audit activity yet.
+                    </p>
+                  ) : (
+                    notifications.map((event) => (
+                      <div
+                        key={event.id}
+                        className="flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-surface-hover"
+                      >
+                        <span className={cn(
+                          "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                          event.result === "success" ? "bg-success" : "bg-danger"
+                        )} />
+                        <div className="min-w-0">
+                          <p className="text-sm text-ink">{event.action}</p>
+                          <p className="mt-0.5 truncate text-xs text-ink-muted">{event.resource}</p>
+                          <p className="mt-1 text-[11px] text-ink-faint">
+                            {event.result} · {timeAgo(event.at)}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </motion.div>
             )}

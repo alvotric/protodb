@@ -32,7 +32,12 @@ export async function POST(req: NextRequest) {
       `select id, password_hash, status from protodb_admin.users where email = $1`,
       [email]
     );
-    const valid = user ? await verifyPassword(password, user.password_hash) : false;
+    // Constant-work verification: always run scrypt exactly once so a missing
+    // account (fast 401) cannot be distinguished from a wrong password (slow
+    // 401) by response timing. The dummy hash is a valid salt:key shape and is
+    // never accepted as a real credential.
+    const DUMMY_PASSWORD_HASH = `${"0".repeat(32)}:${"0".repeat(128)}`;
+    const valid = await verifyPassword(password, user?.password_hash ?? DUMMY_PASSWORD_HASH);
 
     if (!user || !valid) {
       await logAuditEvent({ actor: email, action: "auth.login", resource: "session", result: "failed", ip });

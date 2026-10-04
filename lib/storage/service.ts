@@ -83,7 +83,7 @@ async function transaction<T>(run: (client: PoolClient) => Promise<T>): Promise<
 
 function numeric(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : Number.MAX_SAFE_INTEGER;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function iso(value: Date | string): string {
@@ -405,6 +405,9 @@ export async function finalizeUpload(idValue: unknown, userId: string): Promise<
     const row = await getReservation(id, userId, true, client);
     if (!row) throw new StorageServiceError("Upload reservation not found.", 404);
     if (row.status === "cleanup") throw new StorageServiceError("Upload reservation is being cleaned up.", 409);
+    if (row.status === "finalizing") {
+      throw new StorageServiceError("Upload finalization is already in progress. Please wait and retry.", 409);
+    }
     if (new Date(row.expires_at).getTime() <= Date.now()) {
       throw new StorageServiceError("Upload reservation has expired.", 410);
     }
@@ -442,15 +445,38 @@ export async function finalizeUpload(idValue: unknown, userId: string): Promise<
       if (!locked || locked.status === "cleanup" || locked.storage_key !== reservation.storage_key) {
         throw new StorageServiceError("Upload reservation is no longer valid.", 409);
       }
+      if (locked.status !== "finalizing") {
+        throw new StorageServiceError("Upload reservation is no longer being finalized.", 409);
+      }
+      if (new Date(locked.expires_at).getTime() <= Date.now()) {
+        throw new StorageServiceError("Upload reservation has expired.", 410);
+      }
       const bucket = await findBucket(reservation.bucket_id, client);
       if (!bucket) throw new StorageServiceError("Bucket not found.", 404);
-      const used = await client.query<{ used_bytes: string }>(
-        "select coalesce(sum(size_bytes), 0)::text as used_bytes from protodb_admin.storage_objects where bucket_id = $1",
-        [reservation.bucket_id]
+      // Re-verify the provider object while holding the bucket lock so a
+      // concurrent cancel cannot delete the key between verification and insert.
+      let reverified: VerifiedObjectMetadata | null = null;
+      try {
+        reverified = await provider().headObject(reservation.storage_key);
+      } catch {
+        throw new StorageServiceError("Uploaded object is no longer available. Retry the upload.", 502);
+      }
+      if (!reverified ||
+          reverified.uploadId !== id ||
+          reverified.sizeBytes !== metadata!.sizeBytes ||
+          reverified.sizeBytes !== numeric(reservation.declared_size_bytes)) {
+        throw new StorageServiceError("Uploaded object changed during finalization. Retry the upload.", 409);
+      }
+      const usage = await client.query<{ used_bytes: string; reserved_bytes: string }>(
+        `select
+           coalesce((select sum(size_bytes) from protodb_admin.storage_objects where bucket_id = $1 and state = 'ready'), 0)::text as used_bytes,
+           coalesce((select sum(declared_size_bytes) from protodb_admin.storage_upload_reservations
+                     where bucket_id = $1 and id <> $2 and status in ('pending', 'finalizing') and expires_at > now()), 0)::text as reserved_bytes`,
+        [reservation.bucket_id, id]
       );
       if (quotaExceeded(
-        numeric(used.rows[0].used_bytes),
-        0,
+        numeric(usage.rows[0].used_bytes),
+        numeric(usage.rows[0].reserved_bytes),
         metadata!.sizeBytes,
         bucket.size_limit_bytes === null ? null : numeric(bucket.size_limit_bytes)
       )) {
@@ -480,6 +506,19 @@ export async function finalizeUpload(idValue: unknown, userId: string): Promise<
       }
       throw new StorageServiceError("A file with that name already exists in this folder.", 409);
     }
+    // A quota/validation failure leaves the reservation in "finalizing",
+    // which cancelUpload refuses. Reset to "pending" so the client can
+    // retry finalization or cancel without waiting for expiry.
+    if (error instanceof StorageServiceError && (error.status === 409 || error.status === 413)) {
+      try {
+        await query(
+          "update protodb_admin.storage_upload_reservations set status = 'pending' where id = $1 and status = 'finalizing'",
+          [id]
+        );
+      } catch {
+        console.error("Could not reset a failed Storage upload reservation.", { uploadId: id });
+      }
+    }
     throw error;
   }
 }
@@ -490,11 +529,22 @@ export async function cancelUpload(idValue: unknown, userId: string): Promise<vo
   const row = await transaction(async (client) => {
     const reservation = await getReservation(id, userId, true, client);
     if (!reservation) throw new StorageServiceError("Upload reservation not found.", 404);
+    if (reservation.status === "finalizing") {
+      throw new StorageServiceError("Upload finalization is in progress and cannot be cancelled. Please wait and retry.", 409);
+    }
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [reservation.bucket_id]);
+    // Re-read under the bucket lock so a concurrent finalize cannot slip
+    // between the status check and the cleanup transition.
+    const locked = await getReservation(id, userId, true, client);
+    if (!locked) throw new StorageServiceError("Upload reservation not found.", 404);
+    if (locked.status === "finalizing") {
+      throw new StorageServiceError("Upload finalization is in progress and cannot be cancelled. Please wait and retry.", 409);
+    }
     await client.query(
       "update protodb_admin.storage_upload_reservations set status = 'cleanup', expires_at = now() where id = $1",
       [id]
     );
-    return reservation;
+    return locked;
   });
   await provider().deleteObject(row.storage_key);
   await query(

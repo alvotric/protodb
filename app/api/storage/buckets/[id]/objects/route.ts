@@ -3,7 +3,7 @@ import { canReadStorage } from "@/lib/storage/policy";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isDatabaseConfigured } from "@/lib/db/client";
 import { storageErrorResponse } from "@/lib/storage/http";
-import { listObjects, parseStoragePage, parseStoragePageSize } from "@/lib/storage/service";
+import { cleanDeletingObjects, cleanExpiredUploads, listObjects, parseStoragePage, parseStoragePageSize } from "@/lib/storage/service";
 
 export const runtime = "nodejs";
 
@@ -17,6 +17,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const url = new URL(request.url);
+    // Opportunistic recovery: retry deletions left in "deleting" by a
+    // crashed request and expire stale upload reservations. Best-effort;
+    // failures are logged inside the helpers and never block listing.
+    try { await cleanExpiredUploads(5); } catch { /* logged in helper */ }
+    try { await cleanDeletingObjects(5); } catch { /* logged in helper */ }
     const result = await listObjects({
       bucketId: id,
       folder: url.searchParams.get("folder") ?? "",
