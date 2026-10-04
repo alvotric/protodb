@@ -21,24 +21,31 @@ export function BucketSettingsModal({
   canManage,
   onClose,
   onSave,
+  onDelete,
 }: {
   bucket: StorageBucket;
   open: boolean;
   canManage: boolean;
   onClose: () => void;
   onSave: (next: StorageBucket) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   const [isPublic, setIsPublic] = useState(bucket.isPublic);
   const [limit, setLimit] = useState(formatLimitInput(bucket.sizeLimitBytes));
   const [originalLimit, setOriginalLimit] = useState(bucket.sizeLimitBytes);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsPublic(bucket.isPublic);
     setLimit(formatLimitInput(bucket.sizeLimitBytes));
     setOriginalLimit(bucket.sizeLimitBytes);
     setError(null);
+    setConfirmingDelete(false);
+    setDeleteError(null);
   }, [bucket, open]);
 
   async function save() {
@@ -63,6 +70,20 @@ export function BucketSettingsModal({
       setError(failure instanceof Error ? failure.message : "Could not save bucket settings.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!canManage || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDelete(bucket.id);
+      onClose();
+    } catch (failure) {
+      setDeleteError(failure instanceof Error ? failure.message : "Could not delete bucket.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -102,6 +123,36 @@ export function BucketSettingsModal({
         </div>
         {!canManage && <p className="text-xs text-ink-faint">Owner or Admin access is required to change bucket settings.</p>}
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+
+        {canManage && (
+          <div className="rounded-lg border border-danger/20 p-3">
+            <p className="text-sm text-ink">Delete bucket</p>
+            <p className="mt-0.5 text-xs text-ink-faint">
+              Only empty buckets can be deleted. Stored objects are never deleted by this action.
+            </p>
+            {!confirmingDelete ? (
+              <Button
+                size="sm"
+                variant="danger"
+                className="mt-2"
+                onClick={() => { setDeleteError(null); setConfirmingDelete(true); }}
+                disabled={saving || deleting}
+              >
+                Delete bucket…
+              </Button>
+            ) : (
+              <div className="mt-2 flex items-center gap-2">
+                <Button size="sm" variant="danger" onClick={() => void remove()} loading={deleting}>
+                  Confirm delete
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmingDelete(false)} disabled={deleting}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+            {deleteError && <p role="alert" className="mt-2 text-xs text-danger">{deleteError}</p>}
+          </div>
+        )}
       </div>
     </Modal>
   );

@@ -7,6 +7,7 @@ export const MAX_STORAGE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_STORAGE_PAGE_SIZE = 100;
 export const MAX_STORAGE_PREVIEW_BYTES = 256 * 1024;
 export const MAX_STORAGE_IMAGE_PREVIEW_BYTES = 5 * 1024 * 1024;
+export const MAX_STORAGE_FOLDER_DEPTH = 32;
 export const UPLOAD_URL_TTL_SECONDS = 300;
 export const UPLOAD_RESERVATION_TTL_MINUTES = 30;
 
@@ -35,6 +36,12 @@ export function validateDisplayName(value: unknown): string {
   if (!name || name === "." || name === ".." || /[/\\\u0000-\u001f\u007f]/.test(name)) {
     throw new StorageRequestError("Display name is empty or contains an invalid path character.");
   }
+  if (hasLoneSurrogate(name)) {
+    throw new StorageRequestError("Display name contains invalid Unicode characters.");
+  }
+  if (hasEncodedTraversal(name)) {
+    throw new StorageRequestError("Display name contains an encoded path traversal sequence.");
+  }
   if (Buffer.byteLength(name, "utf8") > 255) {
     throw new StorageRequestError("Display name must not exceed 255 UTF-8 bytes.");
   }
@@ -48,10 +55,46 @@ export function validateFolderPath(value: unknown): string {
   }
   if (Buffer.byteLength(value, "utf8") > 512) throw new StorageRequestError("Folder path is too long.");
   const parts = value.split("/");
+  if (parts.length > MAX_STORAGE_FOLDER_DEPTH) {
+    throw new StorageRequestError(`Folder path must not exceed ${MAX_STORAGE_FOLDER_DEPTH} levels.`);
+  }
   if (parts.some((part) => !part || part === "." || part === ".." || /[\u0000-\u001f\u007f]/.test(part))) {
     throw new StorageRequestError("Folder path contains an invalid or traversal segment.");
   }
+  if (parts.some((part) => hasLoneSurrogate(part) || hasEncodedTraversal(part))) {
+    throw new StorageRequestError("Folder path contains invalid or encoded characters.");
+  }
   return parts.join("/");
+}
+
+/**
+ * Lone UTF-16 surrogates cannot round-trip through UTF-8 storage layers
+ * safely; reject them at the boundary instead of persisting mojibake
+ * that later breaks path handling, signed URLs, or provider keys.
+ */
+function hasLoneSurrogate(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      i += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Defense against double-decoding: some proxies/CDNs decode percent
+ * sequences before the app sees the path. Object-store keys are always
+ * server-generated (`objects/<uuid>`) so user input never becomes a key,
+ * but display names and folder segments are still rejected when they
+ * carry encoded traversal/separator sequences.
+ */
+function hasEncodedTraversal(value: string): boolean {
+  return /%(?:2e|2f|5c)/i.test(value);
 }
 
 export function validateContentType(value: unknown): string {

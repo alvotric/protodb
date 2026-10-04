@@ -7,6 +7,7 @@ import {
   canWriteStorage,
   getStorageKind,
   MAX_STORAGE_FILE_BYTES,
+  MAX_STORAGE_FOLDER_DEPTH,
   newStorageObjectKey,
   parsePage,
   parsePageSize,
@@ -18,6 +19,12 @@ import {
   validateUploadSize,
   validateUuid,
 } from "../lib/storage/policy.ts";
+import {
+  assertGlobalScope,
+  GLOBAL_STORAGE_SCOPE,
+  resolveStorageScope,
+  scopeAuditLabel,
+} from "../lib/storage/scope.ts";
 import { getStorageConfigurationStatus } from "../lib/storage/config.ts";
 import { encodeStorageFilename } from "../lib/storage/s3-provider.ts";
 
@@ -125,4 +132,33 @@ test("storage configuration accepts only secure remote endpoints or loopback HTT
       else process.env[key] = value;
     }
   }
+});
+
+test("storage validators reject encoded traversal, lone surrogates, and excessive depth", () => {
+  assert.throws(() => validateDisplayName("report%2fsecret.txt"), /encoded path traversal/);
+  assert.throws(() => validateDisplayName("a%2E%2Esecret"), /encoded path traversal/);
+  assert.throws(() => validateDisplayName("name%5cadmin"), /encoded path traversal/);
+  assert.throws(() => validateDisplayName("bad\ud800name"), /invalid Unicode/);
+  assert.throws(() => validateFolderPath("reports/%2e%2e/private"), /invalid or encoded/);
+  assert.throws(() => validateFolderPath("lone\udc00/segment"), /invalid or encoded/);
+  const deep = Array.from({ length: MAX_STORAGE_FOLDER_DEPTH + 1 }, (_, i) => `level${i}`).join("/");
+  assert.throws(() => validateFolderPath(deep), /must not exceed/);
+  const maxDepth = Array.from({ length: MAX_STORAGE_FOLDER_DEPTH }, (_, i) => `level${i}`).join("/");
+  assert.equal(validateFolderPath(maxDepth), maxDepth);
+  assert.equal(validateDisplayName("invoice 100%.pdf"), "invoice 100%.pdf");
+  assert.equal(validateFolderPath("reports/2026"), "reports/2026");
+});
+
+test("storage scope defaults to the shared global scope with explicit non-global refusal", () => {
+  assert.deepEqual(resolveStorageScope({ userId: "user-id" }), GLOBAL_STORAGE_SCOPE);
+  assert.equal(scopeAuditLabel(GLOBAL_STORAGE_SCOPE), "global");
+  assert.equal(
+    scopeAuditLabel({ kind: "workspace", workspaceId: "ws-1" }),
+    "workspace:ws-1"
+  );
+  assertGlobalScope(GLOBAL_STORAGE_SCOPE, "storage.bucket.create");
+  assert.throws(
+    () => assertGlobalScope({ kind: "workspace", workspaceId: "ws-1" }, "storage.bucket.create"),
+    /not implemented for workspace scopes/
+  );
 });

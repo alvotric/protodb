@@ -56,7 +56,7 @@ export function SchemaNode({
           disabled={!editable}
           aria-label={`Edit ${name}`}
           title={editable ? `Edit ${name}` : "Table columns are unavailable; editing is disabled"}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-white/10 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
         >
           <Pencil className="h-3 w-3" />
         </button>

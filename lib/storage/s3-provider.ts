@@ -10,6 +10,16 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { StorageConfiguration } from "./config";
 import type { PresignedUpload, StorageProvider, VerifiedObjectMetadata } from "./provider";
 
+/**
+ * S3-compatible object backend behind the `StorageProvider` abstraction.
+ * Application code must depend on the interface, never on this class or
+ * on provider-specific details: the same implementation talks to AWS S3,
+ * Cloudflare R2, Backblaze B2, or a local S3 emulator purely through
+ * endpoint/region/credential configuration. Bytes live here; PostgreSQL
+ * remains the metadata/control plane (buckets, objects, reservations,
+ * quota, audit) and is never used for binary storage.
+ */
+
 export function encodeStorageFilename(value: string): string {
   return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`

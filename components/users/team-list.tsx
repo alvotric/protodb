@@ -109,7 +109,7 @@ export function TeamList({
                       <button
                         type="button"
                         onClick={() => { onToggleSuspend(member.id); setMenuOpenId(null); }}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink hover:bg-white/[0.05]"
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink hover:bg-surface-hover"
                       >
                         <UserCheck className="h-3.5 w-3.5 text-ink-faint" />
                         Reactivate (demo)
@@ -118,7 +118,7 @@ export function TeamList({
                       <button
                         type="button"
                         onClick={() => { setPendingAction({ kind: "suspend", member }); setMenuOpenId(null); }}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink hover:bg-white/[0.05]"
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink hover:bg-surface-hover"
                       >
                         <UserX className="h-3.5 w-3.5 text-ink-faint" />
                         Suspend (demo)

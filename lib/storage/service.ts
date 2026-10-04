@@ -254,6 +254,37 @@ export async function updateBucketSettings(
   });
 }
 
+/**
+ * Deletes an empty logical bucket. Buckets containing objects or active
+ * upload reservations cannot be deleted; objects must be removed first.
+ * The shared physical provider container is never deleted.
+ */
+export async function deleteBucket(idValue: unknown): Promise<void> {
+  requireDatabase();
+  const id = validateUuid(idValue, "Bucket ID");
+  await transaction(async (client) => {
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [id]);
+    const bucket = await findBucket(id, client);
+    if (!bucket) throw new StorageServiceError("Bucket not found.", 404);
+    const objects = await client.query<{ count: string }>(
+      `select count(*)::text as count from protodb_admin.storage_objects where bucket_id = $1`,
+      [id]
+    );
+    if (numeric(objects.rows[0]?.count) > 0) {
+      throw new StorageServiceError("Bucket is not empty. Delete all objects before deleting the bucket.", 409);
+    }
+    const reservations = await client.query<{ count: string }>(
+      `select count(*)::text as count from protodb_admin.storage_upload_reservations
+       where bucket_id = $1 and status in ('pending', 'finalizing') and expires_at > now()`,
+      [id]
+    );
+    if (numeric(reservations.rows[0]?.count) > 0) {
+      throw new StorageServiceError("Bucket has active uploads. Cancel them before deleting the bucket.", 409);
+    }
+    await client.query(`delete from protodb_admin.storage_buckets where id = $1`, [id]);
+  });
+}
+
 export async function listObjects(input: {
   bucketId: unknown;
   folder: unknown;

@@ -20,8 +20,8 @@ export default async function StoragePage() {
           {mode === "live"
             ? "Manage private S3-compatible object storage with PostgreSQL-backed metadata."
             : mode === "demo"
-              ? "Explore sample Storage data without a configured object-storage provider."
-              : "Storage configuration is incomplete; demo data will not be shown as a fallback."}
+              ? "Object storage is not configured. Set STORAGE_PROVIDER=s3 with S3_BUCKET and S3_REGION to enable buckets and uploads."
+              : "Storage configuration is incomplete; buckets and uploads are unavailable until it is fixed."}
         </p>
       </div>
       <StorageWorkspace

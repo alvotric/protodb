@@ -8,6 +8,21 @@ export interface StorageConfiguration {
   forcePathStyle: boolean;
 }
 
+/**
+ * Provider-agnostic S3-compatible configuration. The same fields cover
+ * every supported backend — only the endpoint/region/auth combination
+ * changes per provider:
+ * - AWS S3: region + bucket, no endpoint (IAM role preferred; static
+ *   keys only when the server has no instance role).
+ * - Cloudflare R2: S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com,
+ *   S3_REGION=auto, R2 API token as key pair, path style on.
+ * - Backblaze B2 (S3-compatible): S3_ENDPOINT=https://s3.<region>.backblazeb2.com,
+ *   B2 application key as key pair, path style on.
+ * - Local emulator (development only): loopback HTTP endpoint such as
+ *   http://127.0.0.1:9000 with emulator credentials. Remote plain-HTTP
+ *   endpoints are rejected by validEndpoint() below.
+ * Variable names are stable API — do not rename them per provider.
+ */
 export type StorageConfigurationStatus =
   | { mode: "demo" }
   | { mode: "unavailable"; error: string }
