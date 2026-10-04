@@ -10,7 +10,6 @@ import {
   Users,
   ScrollText,
   Settings,
-  SlidersHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logomark } from "@/components/shell/logomark";
@@ -86,23 +85,6 @@ export function Sidebar() {
           })}
         </ul>
 
-        <div className="mt-5 border-t border-border pt-4">
-          <p className="px-2.5 pb-1.5 text-xs font-medium text-ink-faint">Phase 1</p>
-          <Link
-            href="/components"
-            className={cn(
-              "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors duration-150",
-              pathname === "/components"
-                ? "bg-accent-soft text-ink"
-                : "text-ink-muted hover:bg-surface-hover hover:text-ink"
-            )}
-          >
-            <SlidersHorizontal
-              className={cn("h-4 w-4", pathname === "/components" ? "text-accent" : "text-ink-faint")}
-            />
-            Design system
-          </Link>
-        </div>
       </nav>
 
       <div className="border-t border-border p-3">
