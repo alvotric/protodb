@@ -3,6 +3,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import { ProfileSection } from "@/components/settings/profile-section";
 import { NotificationPreferencesSection } from "@/components/settings/notification-preferences";
 import { AppearanceSection } from "@/components/settings/appearance-section";
+import { GoogleLinkSection } from "@/components/settings/google-link-section";
 import { DangerZoneSection } from "@/components/settings/danger-zone";
 import { getCurrentUser } from "@/lib/auth/session";
 
@@ -23,6 +24,7 @@ export default async function SettingsPage() {
       <div className="max-w-2xl space-y-4">
         <ProfileSection user={user} />
         <AppearanceSection />
+        <GoogleLinkSection />
         <NotificationPreferencesSection />
         <DangerZoneSection />
       </div>

@@ -10,6 +10,18 @@ import { Card } from "@/components/ui/card";
 
 type CheckState = "checking" | "needs-setup" | "ready" | "not-configured" | "error";
 
+const OAUTH_MESSAGES: Record<string, string> = {
+  "cancelled": "Google sign-in was cancelled. Try again when you're ready.",
+  "invalid-state": "Google sign-in could not be verified. Please try again.",
+  "invalid-response": "Google returned an invalid response. Please try again.",
+  "verification-failed": "Google identity verification failed. Please try again.",
+  "unavailable": "Google sign-in is temporarily unavailable. Use your password instead.",
+  "suspended": "This account is unavailable.",
+  "exists": "An account with this email already exists. Sign in with your password instead — you can connect Google from Settings.",
+  "no-account": "No ProtoDB account is linked to this Google identity. Sign in with your password instead.",
+  "signin-required": "Sign in first, then connect Google from Settings.",
+};
+
 /**
  * Phase 10 — Backend API & Real Data Integration.
  * Replaces every earlier phase's implicit "you're always signed in as
@@ -28,6 +40,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [googleRedirecting, setGoogleRedirecting] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("oauth");
+    if (code) setOauthError(OAUTH_MESSAGES[code] ?? "Google sign-in failed. Please try again.");
+  }, []);
 
   useEffect(() => {
     fetch("/api/auth/setup")
@@ -148,6 +167,54 @@ export default function LoginPage() {
               {state === "needs-setup" ? "Create account & sign in" : "Sign in"}
             </Button>
           </form>
+        )}
+
+        {(state === "needs-setup" || state === "ready") && (
+          <div className="mt-4">
+            <div className="flex items-center gap-3" aria-hidden="true">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-xs text-ink-faint">or</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            {oauthError && (
+              <p role="alert" className="mt-3 text-sm text-danger">{oauthError}</p>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              className="mt-3 w-full"
+              disabled={googleRedirecting}
+              onClick={() => {
+                setOauthError(null);
+                setGoogleRedirecting(true);
+                window.location.href = "/api/auth/google";
+              }}
+            >
+              {googleRedirecting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="#4285F4"
+                    d="M23.5 12.3c0-.9-.1-1.5-.3-2.3H12v4.5h6.5c-.1 1.1-.8 2.7-2.4 3.8l-.1.1 3.5 2.7.2.1c2.2-2 3.8-5 3.8-8.9z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.8-2.9c-1 .7-2.4 1.2-4.1 1.2-3.1 0-5.8-2.1-6.8-5l-.1.1-3.6 2.8-.1.1C3.5 21.4 7.5 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.2 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-.1-.1-3.5-2.7-.1.1C.6 8.7 0 10.2 0 12s.6 3.3 1.5 4.8l3.7-2.4z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.5 0 3.5 2.6 1.5 6.8l3.7 2.9c1-2.9 3.7-5 6.8-5z"
+                  />
+                </svg>
+              )}
+              Continue with Google
+            </Button>
+          </div>
         )}
       </Card>
     </div>
