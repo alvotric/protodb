@@ -7,6 +7,7 @@ import {
   Database,
   TerminalSquare,
   HardDrive,
+  Boxes,
   Users,
   ScrollText,
   Settings,
@@ -19,6 +20,7 @@ const primaryNav = [
   { href: "/database", label: "Database", icon: Database },
   { href: "/queries", label: "Queries", icon: TerminalSquare },
   { href: "/storage", label: "Storage", icon: HardDrive },
+  { href: "/projects", label: "Projects", icon: Boxes },
   { href: "/users", label: "Users", icon: Users },
   { href: "/audit", label: "Audit Log", icon: ScrollText },
 ];
