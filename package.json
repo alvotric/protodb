@@ -12,7 +12,8 @@
     "test:phase7": "node --conditions=react-server --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase7-storage.test.mjs tests/phase7-s3.integration.test.mjs",
     "test:phase8": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase8-users.test.mjs",
     "test:phase9": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase9-audit-monitoring.test.mjs",
-    "test:phase10": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase10-backend.test.mjs tests/phase10-google-auth.test.mjs"
+    "test:phase10": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase10-backend.test.mjs tests/phase10-google-auth.test.mjs",
+    "test:project-auth": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/project-auth.test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1145.0",

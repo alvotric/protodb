@@ -32,7 +32,7 @@ import {
 export const CREDENTIAL_SCOPE = "workspace:default" as const;
 export const CURRENT_KEY_VERSION = "v1" as const;
 
-export type CredentialType = "database" | "database_ddl" | "s3_access_key" | "s3_secret_key";
+export type CredentialType = "database" | "database_ddl" | "s3_access_key" | "s3_secret_key" | "google_client_secret";
 
 export interface EncryptedCredentialEnvelope {
   version: typeof CURRENT_KEY_VERSION;
