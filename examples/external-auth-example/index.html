@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Elvotric — ProtoDB Auth example</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 4rem auto; padding: 0 1rem; }
+    button { padding: 0.6rem 1.2rem; font-size: 1rem; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #error { color: #b91c1c; }
+    #user { background: #f1f5f9; padding: 1rem; border-radius: 8px; white-space: pre-wrap; word-break: break-all; }
+    .row { display: flex; gap: 0.5rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Elvotric (reference app)</h1>
+  <p>Real Google sign-in against a local ProtoDB project. No fake authentication.</p>
+  <p id="status" role="status">Checking session…</p>
+  <p id="error" role="alert" hidden></p>
+  <pre id="user" hidden></pre>
+  <div class="row">
+    <button id="signin">Sign in with Google</button>
+    <button id="signout" hidden>Sign out</button>
+  </div>
+  <script type="module">
+    import { createClient, showError, setLoading, CALLBACK_URL } from "./auth.js";
+
+    const { auth } = createClient();
+    const statusEl = document.getElementById("status");
+    const userEl = document.getElementById("user");
+    const signinBtn = document.getElementById("signin");
+    const signoutBtn = document.getElementById("signout");
+
+    function render(user) {
+      const signedIn = Boolean(user);
+      signinBtn.hidden = signedIn;
+      signoutBtn.hidden = !signedIn;
+      userEl.hidden = !signedIn;
+      if (signedIn) {
+        userEl.textContent = JSON.stringify(user, null, 2);
+        statusEl.textContent = `Signed in as ${user.email}`;
+      } else {
+        statusEl.textContent = "Not signed in.";
+      }
+    }
+
+    signinBtn.addEventListener("click", () => {
+      setLoading(true);
+      auth.signInWithGoogle({ redirectTo: CALLBACK_URL }).catch((error) => {
+        setLoading(false);
+        showError(error instanceof Error ? error.message : "Sign-in failed.");
+      });
+    });
+
+    signoutBtn.addEventListener("click", async () => {
+      setLoading(true);
+      try {
+        await auth.signOut();
+        render(null);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : "Sign-out failed.");
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    try {
+      render(await auth.getUser());
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Could not load user.");
+      render(null);
+    }
+  </script>
+</body>
+</html>

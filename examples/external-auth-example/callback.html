@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Elvotric — signing in…</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 4rem auto; padding: 0 1rem; }
+    #error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>Completing sign-in…</h1>
+  <p id="status" role="status">Exchanging authorization code…</p>
+  <p id="error" role="alert" hidden></p>
+  <p><a href="./index.html">Back to app</a></p>
+  <script type="module">
+    import { createClient, showError } from "./auth.js";
+
+    const { auth } = createClient();
+    try {
+      const { user } = await auth.handleCallback();
+      document.getElementById("status").textContent = `Signed in as ${user.email}. Returning…`;
+      window.setTimeout(() => { window.location.href = "./index.html"; }, 800);
+    } catch (error) {
+      document.getElementById("status").textContent = "Sign-in failed.";
+      showError(error instanceof Error ? error.message : "Sign-in failed.");
+    }
+  </script>
+</body>
+</html>

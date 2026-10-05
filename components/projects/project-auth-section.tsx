@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
+import { AppIntegrationSection } from "@/components/projects/app-integration-section";
 
 export interface GoogleProviderState {
   configured: boolean;
@@ -252,6 +253,8 @@ export function ProjectAuthSection({ projectId, slug }: { projectId: string; slu
           </Button>
         </div>
       </Card>
+
+      <AppIntegrationSection slug={slug} />
 
       {saving && (
         <p role="status" className="flex items-center gap-1.5 text-xs text-ink-faint">
