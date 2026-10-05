@@ -15,7 +15,8 @@
     "test:phase10": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase10-backend.test.mjs tests/phase10-google-auth.test.mjs",
     "test:project-auth": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/project-auth.test.mjs",
     "test:auth-js": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/auth-js.test.mjs",
-    "build:auth-js": "tsc -p packages/auth-js"
+    "build:auth-js": "tsc -p packages/auth-js",
+    "sync:auth-example": "node scripts/sync-auth-example.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1145.0",
