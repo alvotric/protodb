@@ -213,6 +213,135 @@ export class ProtoDBAuthClient {
             this.refreshPromise = null;
         }
     }
+    /**
+     * Email/password signup. Creates an unverified project user and asks
+     * ProtoDB to email a verification link. No session is created — the
+     * user signs in after verifying (or immediately if already verified).
+     */
+    async signUp(options) {
+        const body = await this.postJson(`${this.basePath}/signup`, {
+            ...(options.redirectTo ? { redirect_to: options.redirectTo } : {}),
+            email: options.email,
+            password: options.password,
+            ...(options.name !== undefined ? { name: options.name } : {}),
+        });
+        const user = body.user;
+        const message = body.message;
+        if (!user || typeof user.id !== "string" || typeof user.email !== "string") {
+            throw new ProtoDBAuthError("invalid-response", "Signup returned an invalid response.");
+        }
+        return {
+            user: { id: user.id, email: user.email },
+            message: typeof message === "string" ? message : "Account created.",
+        };
+    }
+    /**
+     * Email/password login. Verified accounts only — unverified addresses
+     * get a distinct error so the app can prompt verification.
+     */
+    async signInWithPassword(options) {
+        const body = await this.postJson(`${this.basePath}/token`, {
+            grant_type: "password",
+            email: options.email,
+            password: options.password,
+        });
+        const session = this.sessionFromTokenResponse(body);
+        this.writeSession(session);
+        this.notify("SIGNED_IN", session);
+        return { session, user: session.user };
+    }
+    /**
+     * Requests a password-reset email. Always resolves without revealing
+     * whether the address exists (server enforces the same).
+     */
+    async resetPasswordForEmail(email, options = {}) {
+        await this.postJson(`${this.basePath}/recover`, {
+            ...(options.redirectTo ? { redirect_to: options.redirectTo } : {}),
+            email,
+        });
+    }
+    /** Completes email verification with a single-use token. */
+    async verifyEmail(token) {
+        const body = await this.postJson(`${this.basePath}/verify`, { token });
+        const user = body.user;
+        if (!user || typeof user.id !== "string") {
+            throw new ProtoDBAuthError("invalid-response", "Verification returned an invalid response.");
+        }
+        return { user: { id: user.id, email: typeof user.email === "string" ? user.email : "" } };
+    }
+    /**
+     * Updates the password. Session mode (signed in, optional current
+     * password check) or recovery mode (single-use token; revokes every
+     * session including any local one).
+     */
+    async updatePassword(options) {
+        if (options.token) {
+            await this.postJson(`${this.basePath}/update-password`, {
+                token: options.token,
+                new_password: options.newPassword,
+            });
+            this.writeSession(null);
+            this.storage.removeItem(this.pendingKey);
+            this.notify("SIGNED_OUT", null);
+            return;
+        }
+        const stored = this.readSession();
+        if (!stored) {
+            throw new ProtoDBAuthError("no-session", "Sign in to change your password.");
+        }
+        const response = await this.fetchFn(`${this.basePath}/update-password`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${stored.access_token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                ...(options.currentPassword !== undefined ? { current_password: options.currentPassword } : {}),
+                new_password: options.newPassword,
+            }),
+        }).catch(() => null);
+        if (!response) {
+            throw new ProtoDBAuthError("network-error", "Could not reach the ProtoDB server.");
+        }
+        if (!response.ok) {
+            const body = (await response.json().catch(() => null));
+            const code = typeof body?.error === "string" ? body.error : "request-failed";
+            const message = typeof body?.error_description === "string" ? body.error_description : "Password could not be updated.";
+            throw new ProtoDBAuthError(code, message);
+        }
+    }
+    /**
+     * Real account deletion (not a stub). Password accounts confirm with
+     * their current password. Always clears local state.
+     */
+    async deleteAccount(options = {}) {
+        const stored = this.readSession();
+        if (!stored) {
+            throw new ProtoDBAuthError("no-session", "Sign in to delete your account.");
+        }
+        const response = await this.fetchFn(`${this.basePath}/user`, {
+            method: "DELETE",
+            headers: {
+                Authorization: `Bearer ${stored.access_token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                ...(options.password !== undefined ? { password: options.password } : {}),
+            }),
+        }).catch(() => null);
+        if (response && !response.ok) {
+            const body = (await response.json().catch(() => null));
+            const code = typeof body?.error === "string" ? body.error : "request-failed";
+            if (code === "password_required" || code === "password_invalid") {
+                const message = typeof body?.error_description === "string" ? body.error_description : "Account could not be deleted.";
+                throw new ProtoDBAuthError(code, message);
+            }
+            // Otherwise best-effort: fall through and clear local state.
+        }
+        this.writeSession(null);
+        this.storage.removeItem(this.pendingKey);
+        this.notify("SIGNED_OUT", null);
+    }
     /** Revoke server-side (best-effort) and always clear local state. */
     async signOut(options = {}) {
         const stored = this.readSession();
@@ -262,7 +391,9 @@ export class ProtoDBAuthClient {
         const body = (await response.json().catch(() => null));
         if (!response.ok || !body) {
             const code = typeof body?.error === "string" ? body.error : "request-failed";
-            const message = typeof body?.error_description === "string" ? body.error_description : "Token request failed.";
+            const description = typeof body?.error_description === "string" ? body.error_description : undefined;
+            const fallback = typeof body?.message === "string" ? body.message : "Token request failed.";
+            const message = description ?? fallback;
             if (response.status === 401 || code === "invalid_grant") {
                 throw new ProtoDBAuthError("invalid_grant", message);
             }

@@ -51,6 +51,62 @@ export interface SignInOptions {
   state?: string;
 }
 
+export interface SignUpOptions {
+  email: string;
+  password: string;
+  /** Full name stored on the project user (max 100 chars, optional). */
+  name?: string;
+  /**
+   * Base URL of the app's email-verification page. ProtoDB appends
+   * `?token=…&type=verify`. Should be registered in the project's
+   * Allowed Redirect URLs.
+   */
+  redirectTo?: string;
+}
+
+export interface SignUpResult {
+  user: AuthUser;
+  message: string;
+}
+
+export interface PasswordSignInOptions {
+  email: string;
+  password: string;
+}
+
+export interface ResetPasswordOptions {
+  /**
+   * Base URL of the app's password-reset page. ProtoDB appends
+   * `?token=…&type=recovery`. Should be registered in the project's
+   * Allowed Redirect URLs.
+   */
+  redirectTo?: string;
+}
+
+export interface VerifyEmailResult {
+  user: AuthUser;
+}
+
+export interface UpdatePasswordOptions {
+  /**
+   * Session mode: set a new password for the signed-in user.
+   * `currentPassword` is required when the account already has one.
+   */
+  currentPassword?: string;
+  /** New password (min 8 chars). */
+  newPassword: string;
+  /**
+   * Recovery mode: complete a password reset with a recovery token
+   * instead of a session. All sessions are revoked.
+   */
+  token?: string;
+}
+
+export interface DeleteAccountOptions {
+  /** Required when the account has a password. */
+  password?: string;
+}
+
 export interface HandleCallbackOptions {
   /** Full callback URL. Defaults to window.location.href (browser only). */
   url?: string;

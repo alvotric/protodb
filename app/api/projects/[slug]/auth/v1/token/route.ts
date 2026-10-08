@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseConfigured, query, queryOne } from "@/lib/db/client";
 import { logAuditEvent } from "@/lib/audit/log";
 import { validateCodeVerifier, verifyPkceChallenge } from "@/lib/project-auth/pkce";
+import { authenticatePasswordUser } from "@/lib/project-auth/passwords";
 import { resolveProjectBySlug } from "@/lib/project-auth/projects";
 import { validateProjectSlug, ProjectAuthError } from "@/lib/project-auth/scope";
 import {
@@ -42,8 +43,9 @@ function oauthError(error: string, description: string, status = 400): NextRespo
 }
 
 /**
- * Token endpoint (Supabase-style). Two grants:
+ * Token endpoint (Supabase-style). Three grants:
  * - authorization_code (+ PKCE verifier): single-use code redemption.
+ * - password: email/password login (verified accounts only).
  * - refresh_token: rotation with reuse detection (replayed revoked
  *   tokens burn the whole session family).
  */
@@ -78,10 +80,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   if (grant === "authorization_code") {
     return redeemCode(projectId, projectSlug, body, ip, userAgent);
   }
+  if (grant === "password") {
+    return passwordLogin(projectId, projectSlug, body, ip, userAgent);
+  }
   if (grant === "refresh_token") {
     return rotateRefresh(projectId, projectSlug, body, ip, userAgent);
   }
-  return oauthError("unsupported_grant_type", "grant_type must be authorization_code or refresh_token.");
+  return oauthError("unsupported_grant_type", "grant_type must be authorization_code, password, or refresh_token.");
 }
 
 async function redeemCode(
@@ -141,6 +146,43 @@ async function redeemCode(
     token_type: "Bearer",
     expires_in: tokens.expiresIn,
     user: { id: row.project_user_id, email: user?.email ?? null },
+  });
+}
+
+async function passwordLogin(
+  projectId: string,
+  projectSlug: string,
+  body: Record<string, unknown>,
+  ip: string,
+  userAgent: string | undefined
+): Promise<NextResponse> {
+  let user;
+  try {
+    user = await authenticatePasswordUser(projectId, body.email, body.password);
+  } catch (error) {
+    const code =
+      error instanceof ProjectAuthError
+        ? (error.code ?? "invalid_grant")
+        : "invalid_grant";
+    const status = error instanceof ProjectAuthError ? error.status : 401;
+    const message = error instanceof Error ? error.message : "Incorrect email or password.";
+    await logAuditEvent({ actor: "unknown", action: "project.auth.token-password", resource: `project:${projectSlug}`, result: "failed", ip });
+    return oauthError(code, message, status);
+  }
+  const tokens = await createProjectSession({
+    projectId,
+    userId: user.id,
+    ip,
+    userAgent,
+  }).catch(() => null);
+  if (!tokens) return oauthError("temporarily_unavailable", "Session could not be created.", 503);
+  await logAuditEvent({ actor: user.email, action: "project.auth.token-password", resource: `project:${projectSlug}`, result: "success", ip });
+  return NextResponse.json({
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    token_type: "Bearer",
+    expires_in: tokens.expiresIn,
+    user: { id: user.id, email: user.email },
   });
 }
 

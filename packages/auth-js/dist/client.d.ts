@@ -1,4 +1,4 @@
-import type { AuthChangeEvent, AuthSession, AuthUser, HandleCallbackOptions, ProtoDBClientOptions, SignInOptions, SignOutOptions } from "./types.ts";
+import type { AuthChangeEvent, AuthSession, AuthUser, DeleteAccountOptions, HandleCallbackOptions, PasswordSignInOptions, ProtoDBClientOptions, ResetPasswordOptions, SignInOptions, SignOutOptions, SignUpOptions, SignUpResult, UpdatePasswordOptions, VerifyEmailResult } from "./types.ts";
 type Listener = (event: AuthChangeEvent, session: AuthSession | null) => void;
 export declare class ProtoDBAuthClient {
     readonly url: string;
@@ -42,6 +42,38 @@ export declare class ProtoDBAuthClient {
     getUser(): Promise<AuthUser | null>;
     /** Rotate the refresh token pair. Invalid grants clear local state. */
     refreshSession(): Promise<AuthSession>;
+    /**
+     * Email/password signup. Creates an unverified project user and asks
+     * ProtoDB to email a verification link. No session is created — the
+     * user signs in after verifying (or immediately if already verified).
+     */
+    signUp(options: SignUpOptions): Promise<SignUpResult>;
+    /**
+     * Email/password login. Verified accounts only — unverified addresses
+     * get a distinct error so the app can prompt verification.
+     */
+    signInWithPassword(options: PasswordSignInOptions): Promise<{
+        session: AuthSession;
+        user: AuthUser;
+    }>;
+    /**
+     * Requests a password-reset email. Always resolves without revealing
+     * whether the address exists (server enforces the same).
+     */
+    resetPasswordForEmail(email: string, options?: ResetPasswordOptions): Promise<void>;
+    /** Completes email verification with a single-use token. */
+    verifyEmail(token: string): Promise<VerifyEmailResult>;
+    /**
+     * Updates the password. Session mode (signed in, optional current
+     * password check) or recovery mode (single-use token; revokes every
+     * session including any local one).
+     */
+    updatePassword(options: UpdatePasswordOptions): Promise<void>;
+    /**
+     * Real account deletion (not a stub). Password accounts confirm with
+     * their current password. Always clears local state.
+     */
+    deleteAccount(options?: DeleteAccountOptions): Promise<void>;
     /** Revoke server-side (best-effort) and always clear local state. */
     signOut(options?: SignOutOptions): Promise<void>;
     private sessionFromTokenResponse;

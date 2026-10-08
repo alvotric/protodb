@@ -39,6 +39,16 @@ const protodb = createProtoDBClient({
 // 1. Button handler — redirects the browser to ProtoDB (then Google).
 await protodb.auth.signInWithGoogle();
 
+// 1b. Or email/password (no Google involved).
+await protodb.auth.signUp({ email, password, name, redirectTo: "https://app.example.com/verify-email" });
+await protodb.auth.signInWithPassword({ email, password });
+
+// 1c. Password recovery + verification (single-use emailed tokens).
+await protodb.auth.resetPasswordForEmail(email, { redirectTo: "https://app.example.com/reset-password" });
+await protodb.auth.verifyEmail(token);
+await protodb.auth.updatePassword({ token, newPassword }); // recovery mode
+await protodb.auth.updatePassword({ currentPassword, newPassword }); // signed-in mode
+
 // 2. On your redirect page — exchanges code + PKCE verifier, stores session.
 const { session, user } = await protodb.auth.handleCallback();
 

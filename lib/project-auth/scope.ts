@@ -1,9 +1,12 @@
 export class ProjectAuthError extends Error {
   readonly status: number;
-  constructor(message: string, status = 400) {
+  /** Machine-readable code for client UX mapping (e.g. "email_not_verified"). Optional. */
+  readonly code?: string;
+  constructor(message: string, status = 400, code?: string) {
     super(message);
     this.name = "ProjectAuthError";
     this.status = status;
+    this.code = code;
   }
 }
 
