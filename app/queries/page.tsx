@@ -15,7 +15,7 @@ export default async function QueriesPage() {
       <div className="mb-4">
         <p className="text-sm text-ink-muted">
           {databaseConfigured
-            ? "Run a single PostgreSQL statement against your database."
+            ? "Run a single PostgreSQL statement, or run a full multi-statement migration script (Run script)."
             : "Explore the SQL Editor with clearly labeled sample data."}
         </p>
       </div>

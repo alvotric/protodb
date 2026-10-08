@@ -1,14 +1,18 @@
 "use client";
 
-import { AlertTriangle, Download, Loader2, TerminalSquare, Clock, Rows3 } from "lucide-react";
+import { AlertTriangle, Download, Loader2, TerminalSquare, Clock, Rows3, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Table, TableHead, TableBody, TableRow, TableHeaderCell, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import type { QueryOutcome } from "@/lib/queries/types";
+import type { QueryOutcome, ScriptOutcome } from "@/lib/queries/types";
 import { toCsv, toJson } from "@/lib/queries/export";
 
-type DisplayOutcome = QueryOutcome & { source: "live" | "demo" };
+type DisplayOutcome = (QueryOutcome | ScriptOutcome) & { source: "live" | "demo" };
+
+function isScript(outcome: DisplayOutcome): outcome is ScriptOutcome & { source: "live" | "demo" } {
+  return (outcome as { kind?: unknown }).kind === "script";
+}
 
 function formatCell(value: unknown): string {
   if (value === null) return "NULL";
@@ -58,12 +62,48 @@ export function QueryResults({
   }
 
   if (!outcome.ok) {
+    const failedStatement = isScript(outcome) ? outcome.failedStatement : null;
+    const failedPreview = isScript(outcome) && !outcome.ok ? outcome.failedPreview : undefined;
     return (
       <div className="p-4">
         <div className="flex items-start gap-3 rounded-lg border border-danger/25 bg-danger-soft p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
-          <div>
+          <div className="min-w-0">
             <p className="text-sm text-danger">{outcome.message}</p>
+            {isScript(outcome) && (
+              <p className="mt-1 font-mono text-xs text-ink-muted">
+                Script: {outcome.executedStatements}/{outcome.totalStatements} statements executed
+                {failedStatement !== null && failedStatement !== undefined ? ` — failed at statement ${failedStatement}` : ""}
+                {" "}({outcome.transactionMode} mode, {outcome.durationMs}ms)
+              </p>
+            )}
+            {failedPreview && (
+              <p className="mt-1 truncate font-mono text-xs text-ink-faint" title={failedPreview}>
+                Failing statement preview: {failedPreview}
+              </p>
+            )}
+            {isScript(outcome) && outcome.results.length > 0 && (
+              <div className="mt-2 overflow-auto rounded-md border border-border">
+                <Table>
+                  <TableHead>
+                    <tr>
+                      <TableHeaderCell>#</TableHeaderCell>
+                      <TableHeaderCell>Command</TableHeaderCell>
+                      <TableHeaderCell>Preview</TableHeaderCell>
+                    </tr>
+                  </TableHead>
+                  <TableBody>
+                    {outcome.results.map((result) => (
+                      <TableRow key={result.index}>
+                        <TableCell mono>{result.index}</TableCell>
+                        <TableCell mono>{result.command}</TableCell>
+                        <TableCell mono>{result.preview}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
             {"location" in outcome && outcome.location
               ? <p className="mt-1 font-mono text-xs text-ink-faint">Line {outcome.location.line}, column {outcome.location.column} (PostgreSQL position {outcome.position})</p>
               : "position" in outcome && outcome.position !== undefined
@@ -80,13 +120,59 @@ export function QueryResults({
     );
   }
 
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-4 border-b border-border px-4 py-2.5">
-        <span className="flex items-center gap-1.5 text-xs text-ink-muted">
-          <Rows3 className="h-3.5 w-3.5 text-ink-faint" />
-          {outcome.rowCount.toLocaleString()} row{outcome.rowCount === 1 ? "" : "s"}
-        </span>
+  if (isScript(outcome) && outcome.ok) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-4 border-b border-border px-4 py-2.5">
+          <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+            <ListChecks className="h-3.5 w-3.5 text-ink-faint" />
+            {outcome.executedStatements}/{outcome.totalStatements} statements executed
+          </span>
+          <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+            <Clock className="h-3.5 w-3.5 text-ink-faint" />
+            {outcome.durationMs}ms
+          </span>
+          <Badge tone="success" dot>
+            Script success · {outcome.transactionMode}
+          </Badge>
+          <Badge tone="success" dot>
+            {outcome.source === "live" ? "Live database" : "Demo result"}
+          </Badge>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <Table>
+            <TableHead>
+              <tr>
+                <TableHeaderCell>#</TableHeaderCell>
+                <TableHeaderCell>Command</TableHeaderCell>
+                <TableHeaderCell>Rows</TableHeaderCell>
+                <TableHeaderCell>Preview</TableHeaderCell>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {outcome.results.map((result) => (
+                <TableRow key={result.index}>
+                  <TableCell mono>{result.index}</TableCell>
+                  <TableCell mono>{result.command}</TableCell>
+                  <TableCell mono>{result.rowCount ?? "—"}</TableCell>
+                  <TableCell mono>{result.preview}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isScript(outcome)) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-4 border-b border-border px-4 py-2.5">
+          <span className="flex items-center gap-1.5 text-xs text-ink-muted">
+            <Rows3 className="h-3.5 w-3.5 text-ink-faint" />
+            {outcome.rowCount.toLocaleString()} row{outcome.rowCount === 1 ? "" : "s"}
+          </span>
         <span className="flex items-center gap-1.5 text-xs text-ink-muted">
           <Clock className="h-3.5 w-3.5 text-ink-faint" />
           {outcome.durationMs}ms
@@ -156,4 +242,9 @@ export function QueryResults({
       )}
     </div>
   );
+  }
+
+  // Unreachable: script failures return in the error branch above and script
+  // successes return in the script branch. Kept for type exhaustiveness.
+  return null;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Play, Bookmark, Loader2 } from "lucide-react";
+import { Play, Bookmark, Loader2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
@@ -11,9 +11,9 @@ import { QueryTabs, type QueryTab } from "@/components/queries/query-tabs";
 import { QueryHistoryPanel, type SavedQuery } from "@/components/queries/query-history-panel";
 import { runMockQuery } from "@/lib/sql-mock-engine";
 import { tables, tableColumns, queryHistory as seedHistory } from "@/lib/mock-data";
-import { isQueryOutcome, type QueryHistoryRecord, type QueryOutcome } from "@/lib/queries/types";
+import { isQueryOutcome, isScriptOutcome, type QueryHistoryRecord, type QueryOutcome, type ScriptOutcome, type ScriptTransactionMode } from "@/lib/queries/types";
 
-type DisplayOutcome = QueryOutcome & { source: "live" | "demo" };
+type DisplayOutcome = (QueryOutcome | ScriptOutcome) & { source: "live" | "demo" };
 
 interface ApiSavedQuery {
   id: string;
@@ -122,6 +122,8 @@ export function QueriesWorkspace({
   const [savingQuery, setSavingQuery] = useState(false);
   const [queryWarning, setQueryWarning] = useState<string | null>(null);
   const [focusErrorToken, setFocusErrorToken] = useState(0);
+  const [runMode, setRunMode] = useState<"statement" | "script">("statement");
+  const [transactionMode, setTransactionMode] = useState<ScriptTransactionMode>("transaction");
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0] ?? { id: "tab-1", name: "Query 1", sql: "" };
   const activeOutcome = outcomes[activeTab.id] ?? null;
@@ -232,7 +234,7 @@ export function QueriesWorkspace({
     });
   }
 
-  async function handleRun() {
+  async function handleRun(mode: "statement" | "script" = runMode) {
     const tabId = activeTab.id;
     const sql = activeTab.sql;
     if (loadingIds.has(tabId)) return;
@@ -255,6 +257,9 @@ export function QueriesWorkspace({
               truncated: false,
             }
           : { ...demo, source: "demo" };
+        if (mode === "script") {
+          setQueryWarning("Demo mode runs only the mock single-statement engine; connect a database to run multi-statement scripts.");
+        }
       } else if (!canRunSql) {
         outcome = {
           ok: false,
@@ -262,6 +267,24 @@ export function QueriesWorkspace({
           message: "Your role is not authorized to execute SQL.",
           durationMs: 0,
         };
+      } else if (mode === "script") {
+        const response = await fetch("/api/queries/execute-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sql, transactionMode }),
+        });
+        const body: unknown = await response.json().catch(() => null);
+        if (isRecord(body) && isScriptOutcome(body.outcome)) {
+          outcome = { ...body.outcome, source: "live" };
+          if (typeof body.historyWarning === "string") setQueryWarning(body.historyWarning);
+        } else {
+          outcome = {
+            ok: false,
+            source: "live",
+            message: await responseError(response, body),
+            durationMs: Math.round(performance.now() - started),
+          };
+        }
       } else {
         const response = await fetch("/api/queries/execute", {
           method: "POST",
@@ -284,7 +307,7 @@ export function QueriesWorkspace({
 
       setOutcomes((previous) => ({ ...previous, [tabId]: outcome }));
       if (databaseConfigured) void loadHistory();
-      else if (outcome.source === "demo") {
+      else if (outcome.source === "demo" && !isScriptOutcome(outcome)) {
         const item: QueryHistoryRecord = {
           id: `demo-${Date.now()}`,
           sql,
@@ -370,7 +393,7 @@ export function QueriesWorkspace({
   }
 
   const errorLocation = activeOutcome && !activeOutcome.ok && "location" in activeOutcome
-    ? activeOutcome.location?.offset ?? null
+    ? (activeOutcome as { location?: { offset: number } | undefined }).location?.offset ?? null
     : null;
 
   return (
@@ -406,16 +429,29 @@ export function QueriesWorkspace({
         {metadataError && <p role="status" className="border-b border-warning/20 px-3 py-2 text-xs text-warning">Autocomplete unavailable: {metadataError}</p>}
         {metadataTruncated && <p role="status" className="border-b border-warning/20 px-3 py-2 text-xs text-warning">Autocomplete metadata reached its 5,000-column limit; suggestions may be incomplete.</p>}
 
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <Button size="sm" onClick={() => void handleRun()} disabled={isLoading || (databaseConfigured && !canRunSql)}>
-            {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            Run
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+          <Button size="sm" onClick={() => { setRunMode("statement"); void handleRun("statement"); }} disabled={isLoading || (databaseConfigured && !canRunSql)} title="Execute as a single PostgreSQL statement (existing behavior)">
+            {isLoading && runMode === "statement" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            Run statement
           </Button>
+          <Button size="sm" variant="secondary" onClick={() => { setRunMode("script"); void handleRun("script"); }} disabled={isLoading || (databaseConfigured && !canRunSql)} title="Execute as a multi-statement migration script (DDL, DO blocks, indexes)">
+            {isLoading && runMode === "script" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
+            Run script
+          </Button>
+          <label className="flex items-center gap-1.5 text-[11px] text-ink-muted" title="transaction: all statements in one atomic transaction (default). autocommit: each statement commits on its own; required for VACUUM / CONCURRENTLY / CREATE DATABASE.">
+            <input
+              type="checkbox"
+              checked={transactionMode === "autocommit"}
+              onChange={(event) => setTransactionMode(event.target.checked ? "autocommit" : "transaction")}
+              className="h-3.5 w-3.5 accent-current"
+            />
+            Autocommit mode
+          </label>
           <Button size="sm" variant="secondary" onClick={() => { setSaveError(null); setSaveModalOpen(true); }}>
             <Bookmark className="h-3.5 w-3.5" />
             Save
           </Button>
-          <span className="ml-auto text-[11px] text-ink-faint">⌘/Ctrl + Enter to run</span>
+          <span className="ml-auto text-[11px] text-ink-faint">⌘/Ctrl + Enter runs a single statement</span>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-rows-2 divide-y divide-border">
