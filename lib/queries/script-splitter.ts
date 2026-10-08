@@ -25,7 +25,7 @@ export interface SplitStatement {
   preview: string;
 }
 
-export const MAX_SCRIPT_STATEMENTS = 200;
+export const MAX_SCRIPT_STATEMENTS = 500;
 export const SCRIPT_PREVIEW_LENGTH = 160;
 
 export function statementPreview(text: string, maxLength = SCRIPT_PREVIEW_LENGTH): string {

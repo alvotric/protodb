@@ -2,12 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  MAX_SCRIPT_STATEMENTS,
   findNonTransactionalStatements,
   isNonTransactionalStatement,
   splitPostgresScript,
   statementPreview,
 } from "../lib/queries/script-splitter.ts";
-import { parseScriptTransactionMode } from "../lib/queries/script-service.ts";
+import { executeScript, parseScriptTransactionMode } from "../lib/queries/script-service.ts";
 import { isQueryOutcome, isScriptOutcome } from "../lib/queries/types.ts";
 import { validateSqlText } from "../lib/queries/query-policy.ts";
 
@@ -81,6 +82,17 @@ test("comment-only and empty scripts yield zero statements", () => {
 test("escaped single quotes do not end strings", () => {
   const parts = splitPostgresScript("insert into t values ('it''s; fine'); select 1;");
   assert.equal(parts.length, 2);
+});
+
+test("script statement limit is 500 and over-limit scripts are rejected before execution", async () => {
+  assert.equal(MAX_SCRIPT_STATEMENTS, 500);
+  const overLimit = Array.from({ length: 501 }, (_, index) => `select ${index + 1};`).join("\n");
+  assert.equal(splitPostgresScript(overLimit).length, 501);
+  // The limit gate runs before any database connection is opened.
+  const outcome = await executeScript(overLimit);
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.executedStatements, 0);
+  assert.match(outcome.message, /exceeds the limit of 500/);
 });
 
 test("detects statements that cannot run inside a transaction", () => {
