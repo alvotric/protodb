@@ -11,7 +11,7 @@ import { connect as connectTls } from "node:tls";
 export interface SmtpConfig {
   host: string;
   port: number;
-  /** "ssl" = direct TLS (465); "starttls" = upgrade when offered; "none" = plain. */
+  /** "ssl" = direct TLS (465); "starttls" = require STARTTLS, fail closed when unadvertised; "none" = plain. */
   secure: "ssl" | "starttls" | "none";
   user?: string;
   pass?: string;
@@ -60,6 +60,8 @@ class SmtpConnection {
   private buffer = "";
   private waiters: Array<{ resolve: (line: string) => void; reject: (err: Error) => void }> = [];
   private closed = false;
+  /** Lines of the reply currently being received (RFC 5321 §4.2 multiline). */
+  private replyLines: string[] = [];
 
   constructor(socket: Socket, timeoutMs: number) {
     this.socket = socket;
@@ -81,16 +83,26 @@ class SmtpConnection {
     while ((idx = this.buffer.indexOf("\r\n")) >= 0) {
       const line = this.buffer.slice(0, idx);
       this.buffer = this.buffer.slice(idx + 2);
-      // Multi-line replies continue while the 4th char is "-".
-      if (/^\d{3}-/.test(line)) continue;
-      const waiter = this.waiters.shift();
-      if (waiter) waiter.resolve(line);
+      this.replyLines.push(line);
+      // Per RFC 5321 §4.2 a reply is complete at the first line whose
+      // 4th character is a space; continuation lines use "-". The full
+      // reply (continuation lines AND final line) is returned so callers
+      // can inspect capabilities like STARTTLS that servers advertise on
+      // continuation lines. Lines without a status code are treated as
+      // continuations and keep accumulating.
+      if (/^\d{3} /.test(line)) {
+        const reply = this.replyLines.join("\r\n");
+        this.replyLines = [];
+        const waiter = this.waiters.shift();
+        if (waiter) waiter.resolve(reply);
+      }
     }
   }
 
   private failAll(err: Error): void {
     const pending = this.waiters;
     this.waiters = [];
+    this.replyLines = [];
     for (const w of pending) w.reject(err);
   }
 
@@ -197,6 +209,18 @@ function buildMime(from: string, fromName: string | undefined, msg: SmtpMessage)
   ].join("\r\n");
 }
 
+/**
+ * True when an EHLO reply advertises STARTTLS on any of its lines
+ * (continuation or final), e.g. Gmail's `250-STARTTLS` continuation
+ * line. The capability token is matched whole-word so similarly-named
+ * extensions do not trigger a TLS upgrade.
+ */
+export function ehloAdvertisesStarttls(reply: string): boolean {
+  return reply
+    .split(/\r?\n/)
+    .some((line) => /^250[ -]/.test(line) && /\bSTARTTLS\b/i.test(line));
+}
+
 /** Sends one message. Throws with a short reason on any SMTP failure. */
 export async function sendSmtpMail(config: SmtpConfig, msg: SmtpMessage): Promise<void> {
   const openSocket = (): Promise<Socket> =>
@@ -221,7 +245,13 @@ export async function sendSmtpMail(config: SmtpConfig, msg: SmtpMessage): Promis
     const greeting = await conn.readReply();
     if (!/^2/.test(greeting)) throw new Error(`SMTP greeting rejected: ${greeting}`);
     const ehlo = await conn.command(`EHLO ${config.host}`, [250]);
-    if (config.secure === "starttls" && /^250[ -].*STARTTLS/im.test(ehlo)) {
+    if (config.secure === "starttls") {
+      // Fail closed: never AUTH over plaintext in STARTTLS mode. AUTH is
+      // only reached after STARTTLS receives 220, the TLS upgrade
+      // succeeds, and the second EHLO succeeds.
+      if (!ehloAdvertisesStarttls(ehlo)) {
+        throw new Error("SMTP STARTTLS required but not advertised by the server.");
+      }
       await conn.command("STARTTLS", [220]);
       await conn.upgradeToTls(config.host);
       await conn.command(`EHLO ${config.host}`, [250]);
