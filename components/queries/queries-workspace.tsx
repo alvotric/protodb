@@ -410,8 +410,8 @@ export function QueriesWorkspace({
     : null;
 
   return (
-    <div className="glass grid h-[75vh] min-h-[520px] grid-cols-[240px_1fr] overflow-hidden rounded-xl border border-border shadow-panel">
-      <div className="border-r border-border">
+    <div className="glass grid h-[75vh] min-h-[520px] grid-cols-[240px_1fr] grid-rows-[minmax(0,1fr)] overflow-hidden rounded-xl border border-border shadow-panel">
+      <div className="min-h-0 border-r border-border">
         <QueryHistoryPanel
           history={history}
           saved={saved}
@@ -426,7 +426,7 @@ export function QueriesWorkspace({
         />
       </div>
 
-      <div className="flex min-w-0 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-col">
         <QueryTabs tabs={tabs} activeId={activeTab.id} onSelect={setActiveId} onClose={closeTab} onAdd={addTab} />
 
         {databaseConfigured ? (
