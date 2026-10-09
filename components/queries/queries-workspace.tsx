@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Bookmark, Loader2, Layers } from "lucide-react";
+import { Play, Bookmark, Loader2, Layers, TerminalSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
@@ -124,8 +124,10 @@ export function QueriesWorkspace({
   const [focusErrorToken, setFocusErrorToken] = useState(0);
   const [runMode, setRunMode] = useState<"statement" | "script">("statement");
   const [transactionMode, setTransactionMode] = useState<ScriptTransactionMode>("transaction");
-  // TEMPORARY diagnostics for the disappearing-results investigation (read-only).
-  const debugSigRef = useRef<string>("");
+  // Per-tab run sequence: only the latest run per tab may publish its
+  // outcome. This guards against a stale (e.g. double-invoked) response
+  // overwriting newer results. History refreshes never touch this.
+  const runSeqRef = useRef<Record<string, number>>({});
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0] ?? { id: "tab-1", name: "Query 1", sql: "" };
   const activeOutcome = outcomes[activeTab.id] ?? null;
@@ -135,16 +137,13 @@ export function QueriesWorkspace({
     if (!databaseConfigured) return;
     setHistoryLoading(true);
     setHistoryError(null);
-    console.log("[queries-debug] history refresh start");
     try {
       const response = await fetch("/api/queries/history");
       const body: unknown = await response.json().catch(() => null);
       const records = historyFromApi(body);
       if (!response.ok || !records) throw new Error(await responseError(response, body));
       setHistory(records);
-      console.log("[queries-debug] history refresh done", { count: records.length });
     } catch (error) {
-      console.log("[queries-debug] history refresh error", { message: error instanceof Error ? error.message : "unknown" });
       setHistoryError(error instanceof Error ? error.message : "Could not load query history.");
     } finally {
       setHistoryLoading(false);
@@ -211,33 +210,6 @@ export function QueriesWorkspace({
     void loadMetadata();
   }, [databaseConfigured, loadHistory, loadMetadata, loadSaved]);
 
-  // TEMPORARY diagnostics for the disappearing-results investigation.
-  // Read-only console tracing; no behavior change. Remove once the root
-  // cause is proven from runtime evidence.
-  useEffect(() => {
-    console.log("[queries-debug] workspace mount");
-    return () => console.log("[queries-debug] workspace UNMOUNT (all result state reset!)");
-  }, []);
-  useEffect(() => {
-    const signature = JSON.stringify({
-      activeId,
-      tabs: tabs.map((tab) => ({ id: tab.id, sqlLength: tab.sql.length })),
-      outcomes: Object.entries(outcomes).map(([id, outcome]) => ({
-        id,
-        ok: outcome?.ok ?? null,
-        script: outcome ? isScriptOutcome(outcome) : null,
-        rowCount: outcome && outcome.ok && !isScriptOutcome(outcome) ? outcome.rowCount : null,
-      })),
-      loading: [...loadingIds],
-      historyLoading,
-      historyCount: history.length,
-    });
-    if (debugSigRef.current !== signature) {
-      debugSigRef.current = signature;
-      console.log("[queries-debug] state", signature);
-    }
-  });
-
   function updateSql(tabId: string, sql: string) {
     setTabs((previous) => previous.map((tab) => tab.id === tabId ? { ...tab, sql } : tab));
   }
@@ -249,6 +221,7 @@ export function QueriesWorkspace({
   }
 
   function closeTab(id: string) {
+    delete runSeqRef.current[id];
     setTabs((previous) => {
       const next = previous.filter((tab) => tab.id !== id);
       if (id === activeId && next.length > 0) setActiveId(next[next.length - 1].id);
@@ -270,7 +243,8 @@ export function QueriesWorkspace({
     const tabId = activeTab.id;
     const sql = activeTab.sql;
     if (loadingIds.has(tabId)) return;
-    console.log("[queries-debug] run start", { tabId, mode, sqlLength: sql.length });
+    const seq = (runSeqRef.current[tabId] ?? 0) + 1;
+    runSeqRef.current[tabId] = seq;
     setQueryWarning(null);
     setLoadingIds((previous) => new Set(previous).add(tabId));
     const started = performance.now();
@@ -338,13 +312,9 @@ export function QueriesWorkspace({
         }
       }
 
+      // Discard stale responses: only the latest run per tab publishes.
+      if (runSeqRef.current[tabId] !== seq) return;
       setOutcomes((previous) => ({ ...previous, [tabId]: outcome }));
-      console.log("[queries-debug] run outcome ready", {
-        tabId,
-        ok: outcome.ok,
-        script: isScriptOutcome(outcome),
-        rowCount: outcome.ok && !isScriptOutcome(outcome) ? outcome.rowCount : null,
-      });
       if (databaseConfigured) void loadHistory();
       else if (outcome.source === "demo" && !isScriptOutcome(outcome)) {
         const item: QueryHistoryRecord = {
@@ -360,6 +330,8 @@ export function QueriesWorkspace({
         setHistory((previous) => [item, ...previous]);
       }
     } catch (error) {
+      // A stale run must not overwrite a newer run's results with an error.
+      if (runSeqRef.current[tabId] !== seq) return;
       setOutcomes((previous) => ({
         ...previous,
         [tabId]: {
@@ -370,6 +342,8 @@ export function QueriesWorkspace({
         },
       }));
     } finally {
+      // A stale run must not clear a newer run's loading state.
+      if (runSeqRef.current[tabId] !== seq) return;
       setLoadingIds((previous) => {
         const next = new Set(previous);
         next.delete(tabId);
@@ -502,11 +476,21 @@ export function QueriesWorkspace({
             errorOffset={errorLocation}
             focusErrorToken={focusErrorToken}
           />
-          <QueryResults
-            outcome={activeOutcome}
-            loading={isLoading}
-            onGoToError={() => setFocusErrorToken((token) => token + 1)}
-          />
+          <section aria-label="Query results" className="flex min-h-0 flex-col">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+              <TerminalSquare className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+              <h2 className="text-xs font-medium text-ink-muted">Query Results</h2>
+              <span className="truncate font-mono text-[11px] text-ink-faint">{activeTab.name}</span>
+              {isLoading && <span className="ml-auto text-[11px] text-ink-faint">Running…</span>}
+            </div>
+            <div className="min-h-0 flex-1">
+              <QueryResults
+                outcome={activeOutcome}
+                loading={isLoading}
+                onGoToError={() => setFocusErrorToken((token) => token + 1)}
+              />
+            </div>
+          </section>
         </div>
       </div>
 

@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test:phase5": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase5-schema-validation.test.mjs",
     "test:phase6": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase6-sql-editor.test.mjs",
+    "test:results-view": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase6-results-view.test.mjs",
     "test:script-runner": "node --import ./tests/register-alias.mjs --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase6-script-runner.test.mjs",
     "test:phase7": "node --conditions=react-server --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase7-storage.test.mjs tests/phase7-s3.integration.test.mjs",
     "test:phase8": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/phase8-users.test.mjs",

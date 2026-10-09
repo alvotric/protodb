@@ -7,6 +7,7 @@ import { Table, TableHead, TableBody, TableRow, TableHeaderCell, TableCell } fro
 import { Badge } from "@/components/ui/badge";
 import type { QueryOutcome, ScriptOutcome } from "@/lib/queries/types";
 import { toCsv, toJson } from "@/lib/queries/export";
+import { resolveResultsView } from "@/lib/queries/results-view";
 
 type DisplayOutcome = (QueryOutcome | ScriptOutcome) & { source: "live" | "demo" };
 
@@ -41,7 +42,12 @@ export function QueryResults({
   loading: boolean;
   onGoToError: () => void;
 }) {
-  if (loading) {
+  // The panel state depends only on the execution outcome and loading
+  // flag — never on history loading or other UI state — so a history
+  // refresh cannot clear or replace visible results.
+  const view = resolveResultsView(outcome, loading);
+
+  if (view === "loading") {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-muted">
         <Loader2 className="h-5 w-5 animate-spin text-accent" />
@@ -50,7 +56,7 @@ export function QueryResults({
     );
   }
 
-  if (!outcome) {
+  if (view === "empty" || outcome === null) {
     return (
       <EmptyState
         icon={TerminalSquare}
@@ -65,7 +71,7 @@ export function QueryResults({
     const failedStatement = isScript(outcome) ? outcome.failedStatement : null;
     const failedPreview = isScript(outcome) && !outcome.ok ? outcome.failedPreview : undefined;
     return (
-      <div className="p-4">
+      <div className="h-full overflow-auto p-4">
         <div className="flex items-start gap-3 rounded-lg border border-danger/25 bg-danger-soft p-4">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           <div className="min-w-0">
